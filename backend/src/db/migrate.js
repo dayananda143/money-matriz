@@ -93,6 +93,11 @@ async function migrate() {
     )
   `);
 
+  // Add holder_user_id to stocks if not exists
+  await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS holder_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS investment_settled BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS pnl_settled BOOLEAN DEFAULT false`);
+
   // Seed super admin if not exists
   const { rows } = await query(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`);
   if (rows.length === 0) {

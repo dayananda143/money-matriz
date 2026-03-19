@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart as PieIcon, Building2, Wallet } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import StatCard from '../../components/ui/StatCard';
@@ -25,6 +25,7 @@ export default function CompanyDashboardPage() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeSlice, setActiveSlice] = useState(null);
 
   useEffect(() => {
     api.get('/company/dashboard')
@@ -41,7 +42,7 @@ export default function CompanyDashboardPage() {
     </div>
   );
 
-  const { categories = {}, debt, shares, recent = [], stock_strategy_pnl, trading_investment_total } = data;
+  const { categories = {}, debt, shares, recent = [], stock_strategy_pnl, trading_investment_total, deposits = { principal: 0, bank_value: 0, interest: 0, count: 0 } } = data;
 
   const totalInvestment = shares.by_type?.reduce((s, t) => s + t.total, 0) ?? 0;
   const totalExpenses = debt.paid
@@ -49,8 +50,7 @@ export default function CompanyDashboardPage() {
     + (trading_investment_total ?? categories['trading_investment']?.total ?? 0)
     + CATEGORY_ORDER.filter(k => k !== 'debt' && k !== 'shares' && k !== 'stock_strategy' && k !== 'trading_investment')
         .reduce((s, k) => s + (categories[k]?.total || 0), 0);
-  const fdrdAmount = shares.by_type?.find(t => t.share_type?.toLowerCase().includes('fd') || t.share_type?.toLowerCase().includes('rd'))?.total ?? 0;
-  const cashOnHand = totalInvestment - totalExpenses - fdrdAmount;
+  const cashOnHand = totalInvestment - totalExpenses - deposits.principal;
 
   return (
     <div className="space-y-6">
@@ -64,10 +64,17 @@ export default function CompanyDashboardPage() {
       {/* Overall Financials */}
       <div>
         <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Overall Financials</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatCard title="Total Company Investment" value={fmt.currency(totalInvestment)} icon={Wallet} color="purple" />
           <StatCard title="Total Expenses" value={fmt.currency(totalExpenses)} icon={Receipt} color="orange" />
           <StatCard title="Cash on Hand" value={fmt.currency(cashOnHand)} icon={Wallet} color="brand" />
+          <StatCard
+            title="Bank Deposits"
+            value={fmt.currency(deposits.bank_value)}
+            sub={`Principal: ${fmt.currency(deposits.principal)}${deposits.interest !== 0 ? `  ·  ${deposits.interest >= 0 ? '+' : ''}${fmt.currency(deposits.interest)} interest` : ''}`}
+            icon={Building2}
+            color="teal"
+          />
         </div>
       </div>
 
@@ -150,60 +157,67 @@ export default function CompanyDashboardPage() {
 
       {/* Shares ownership pie */}
       {shares.breakdown.length > 0 && (() => {
-        const total = shares.total_contributed;
+        const grandTotal = shares.total_contributed;
         const chartData = shares.breakdown.map(r => ({
           name: r.name,
           value: r.total_amount,
-          pct: total > 0 ? ((r.total_amount / total) * 100).toFixed(1) : '0.0',
+          pct: grandTotal > 0 ? ((r.total_amount / grandTotal) * 100).toFixed(1) : '0.0',
         }));
         return (
-          <div className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-900 dark:text-white">Shareholder Ownership</h2>
-            </div>
-            <div className="flex flex-col lg:flex-row gap-6 items-center">
-              <div className="w-full lg:w-56 h-56 flex-shrink-0">
+          <div className="card p-4">
+            <h2 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Shareholder Ownership</h2>
+            <div className="flex flex-col lg:flex-row gap-4 items-center">
+              <div className="relative w-full lg:w-48 h-48 flex-shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={50} outerRadius={90}
-                      dataKey="value" paddingAngle={2}>
-                      {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={44} outerRadius={76}
+                      dataKey="value" nameKey="name" paddingAngle={2}
+                      onMouseEnter={(_, index) => setActiveSlice(index)}
+                      onMouseLeave={() => setActiveSlice(null)}>
+                      {chartData.map((_, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]}
+                          opacity={activeSlice === null || activeSlice === i ? 1 : 0.45} />
+                      ))}
                     </Pie>
-                    <Tooltip formatter={(val) => fmt.currency(val)} />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  {activeSlice !== null ? (
+                    <div className="text-center px-1" style={{ maxWidth: 80 }}>
+                      <p className="text-[10px] font-medium text-gray-600 dark:text-gray-400 leading-tight break-words">{chartData[activeSlice].name}</p>
+                      <p className="text-xs font-bold text-violet-600 dark:text-violet-400 mt-0.5">{fmt.currency(chartData[activeSlice].value)}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{chartData[activeSlice].pct}%</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400">Total</p>
+                      <p className="text-xs font-bold text-gray-700 dark:text-gray-300">{fmt.currency(grandTotal)}</p>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex-1 w-full">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b border-gray-100 dark:border-gray-700">
-                      <th className="pb-2 font-medium">Shareholder</th>
-                      <th className="pb-2 font-medium text-right">Amount</th>
-                      <th className="pb-2 font-medium text-right">Ownership</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {chartData.map((d, i) => (
-                      <tr key={d.name} className="border-b border-gray-50 dark:border-gray-800">
-                        <td className="py-2 flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className="font-medium text-gray-900 dark:text-white">{d.name}</span>
-                        </td>
-                        <td className="py-2 text-right font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(d.value)}</td>
-                        <td className="py-2 text-right">
-                          <span className="inline-block bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full">
-                            {d.pct}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td className="pt-3 font-semibold text-gray-700 dark:text-gray-300">Total</td>
-                      <td className="pt-3 text-right font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</td>
-                      <td className="pt-3 text-right font-bold text-gray-500">100%</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs mb-2">
+                  {chartData.map((d, i) => (
+                    <div key={d.name} className="flex items-center justify-between border-b border-gray-50 dark:border-gray-800 py-1.5 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                        <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{d.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(d.value)}</span>
+                        <span className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 font-semibold px-1.5 py-0.5 rounded-full">{d.pct}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-1 text-xs border-t border-gray-200 dark:border-gray-700">
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">Total</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900 dark:text-white">{fmt.currency(grandTotal)}</span>
+                    <span className="font-bold text-gray-500">100%</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -25,6 +25,7 @@ const api = {
   get: (path) => request('GET', path),
   post: (path, data) => request('POST', path, data),
   put: (path, data) => request('PUT', path, data),
+  patch: (path, data) => request('PATCH', path, data),
   delete: (path) => request('DELETE', path),
 };
 

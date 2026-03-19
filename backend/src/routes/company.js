@@ -49,9 +49,15 @@ const ensureTable = query(`
 ).then(() =>
   query(`ALTER TABLE shares_contributors ADD COLUMN IF NOT EXISTS scheme VARCHAR(100)`)
 ).then(() =>
+  query(`ALTER TABLE shares_contributors ADD COLUMN IF NOT EXISTS excluded BOOLEAN DEFAULT FALSE`)
+).then(() =>
   query(`ALTER TABLE company_records ADD COLUMN IF NOT EXISTS scheme VARCHAR(100)`)
 ).then(() =>
   query(`ALTER TABLE company_records ADD COLUMN IF NOT EXISTS excluded BOOLEAN DEFAULT FALSE`)
+).then(() =>
+  query(`ALTER TABLE company_records ADD COLUMN IF NOT EXISTS bank_value DECIMAL(15,2)`)
+).then(() =>
+  query(`ALTER TABLE company_records ADD COLUMN IF NOT EXISTS maturity_date DATE`)
 ).catch(console.error);
 
 // GET records by category
@@ -63,7 +69,8 @@ router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, r
                ur.name as user_name, ur.email as user_email, ur.user_type as user_type,
                COALESCE(p.total_paid, 0) as total_paid,
                COALESCE(sc.total_contributed, 0) as total_contributed,
-               COALESCE(sc.contributor_count, 0) as contributor_count
+               COALESCE(sc.contributor_count, 0) as contributor_count,
+               COALESCE(sc.contributor_user_ids, '{}') as contributor_user_ids
                FROM company_records cr
                LEFT JOIN users cb ON cb.id = cr.created_by
                LEFT JOIN users ur ON ur.id = cr.user_id
@@ -71,7 +78,8 @@ router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, r
                  SELECT debt_id, SUM(amount) as total_paid FROM debt_payments GROUP BY debt_id
                ) p ON p.debt_id = cr.id
                LEFT JOIN (
-                 SELECT shares_id, SUM(amount) as total_contributed, COUNT(*) as contributor_count
+                 SELECT shares_id, SUM(amount) as total_contributed, COUNT(*) as contributor_count,
+                        array_agg(user_id) as contributor_user_ids
                  FROM shares_contributors GROUP BY shares_id
                ) sc ON sc.shares_id = cr.id
                WHERE 1=1`;
@@ -89,14 +97,14 @@ router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, r
 // POST create record
 router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { category, description, amount, record_date, notes, user_id, share_type, transaction_type, scheme } = req.body;
+    const { category, description, amount, record_date, notes, user_id, share_type, transaction_type, scheme, bank_value, maturity_date } = req.body;
     if (!category || !description || amount == null) {
       return res.status(400).json({ error: 'category, description, amount required' });
     }
     const { rows } = await query(
-      `INSERT INTO company_records (category, description, amount, record_date, notes, user_id, share_type, transaction_type, scheme, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [category, description, parseFloat(amount), record_date || new Date().toISOString().slice(0,10), notes || null, user_id || null, share_type || null, transaction_type || null, scheme || null, req.user.id]
+      `INSERT INTO company_records (category, description, amount, record_date, notes, user_id, share_type, transaction_type, scheme, bank_value, maturity_date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [category, description, parseFloat(amount), record_date || new Date().toISOString().slice(0,10), notes || null, user_id || null, share_type || null, transaction_type || null, scheme || null, bank_value != null ? parseFloat(bank_value) : null, maturity_date || null, req.user.id]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -108,11 +116,11 @@ router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, 
 // PUT update record
 router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { description, amount, record_date, notes, user_id, share_type, transaction_type, scheme, excluded } = req.body;
+    const { description, amount, record_date, notes, user_id, share_type, transaction_type, scheme, excluded, bank_value, maturity_date } = req.body;
     const { rows } = await query(
-      `UPDATE company_records SET description=$1, amount=$2, record_date=$3, notes=$4, user_id=$5, share_type=$6, transaction_type=$7, scheme=$8, excluded=$9, updated_at=NOW()
-       WHERE id=$10 RETURNING *`,
-      [description, parseFloat(amount), record_date, notes || null, user_id || null, share_type || null, transaction_type || null, scheme || null, !!excluded, req.params.id]
+      `UPDATE company_records SET description=$1, amount=$2, record_date=$3, notes=$4, user_id=$5, share_type=$6, transaction_type=$7, scheme=$8, excluded=$9, bank_value=$10, maturity_date=$11, updated_at=NOW()
+       WHERE id=$12 RETURNING *`,
+      [description, parseFloat(amount), record_date, notes || null, user_id || null, share_type || null, transaction_type || null, scheme || null, !!excluded, bank_value != null ? parseFloat(bank_value) : null, maturity_date || null, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Record not found' });
     res.json(rows[0]);
@@ -152,7 +160,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
   const isShareholder = req.user.user_type === 'shareholder';
   if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const [catRows, debtRows, sharesRows, sharesSummary, sharesTypeRows, recentRows, stockPnlRows, tradingTotalRows] = await Promise.all([
+    const [catRows, debtRows, sharesRows, sharesSummary, sharesTypeRows, recentRows, stockPnlRows, tradingTotalRows, depositsRows] = await Promise.all([
       query(`SELECT category, COALESCE(SUM(amount),0) as total, COUNT(*) as count FROM company_records GROUP BY category`),
       query(`SELECT COALESCE(SUM(cr.amount),0) as total_debt, COALESCE(SUM(dp.total_paid),0) as total_paid
              FROM company_records cr
@@ -166,7 +174,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
              FROM shares_contributors sc
              JOIN company_records cr ON cr.id = sc.shares_id
              JOIN users u ON u.id = sc.user_id
-             WHERE cr.category = 'shares'
+             WHERE cr.category = 'shares' AND sc.excluded = FALSE
              GROUP BY u.id, u.name
              ORDER BY total_amount DESC`),
       query(`SELECT COALESCE(cr.share_type, 'Uncategorized') as share_type,
@@ -191,6 +199,11 @@ router.get('/dashboard', authenticate, async (req, res) => {
              JOIN company_records cr ON cr.id = sc.shares_id
              JOIN users u ON u.id = sc.user_id
              WHERE cr.category = 'trading_investment' AND LOWER(u.name) = 'moneymatriz'`),
+      query(`SELECT
+               COALESCE(SUM(amount), 0) as total_principal,
+               COALESCE(SUM(COALESCE(bank_value, amount)), 0) as total_bank_value,
+               COUNT(*) as count
+             FROM company_records WHERE category = 'deposits'`),
     ]);
     const catMap = {};
     catRows.rows.forEach(r => { catMap[r.category] = { total: parseFloat(r.total), count: parseInt(r.count) }; });
@@ -214,6 +227,12 @@ router.get('/dashboard', authenticate, async (req, res) => {
         net: parseFloat(stockPnlRows.rows[0].total_returned) - parseFloat(stockPnlRows.rows[0].total_invested),
       },
       trading_investment_total: parseFloat(tradingTotalRows.rows[0].total),
+      deposits: {
+        principal: parseFloat(depositsRows.rows[0].total_principal),
+        bank_value: parseFloat(depositsRows.rows[0].total_bank_value),
+        interest: parseFloat(depositsRows.rows[0].total_bank_value) - parseFloat(depositsRows.rows[0].total_principal),
+        count: parseInt(depositsRows.rows[0].count),
+      },
     });
   } catch (err) {
     console.error(err);
@@ -221,17 +240,18 @@ router.get('/dashboard', authenticate, async (req, res) => {
   }
 });
 
-// GET all trading_investment contributions for a specific user
+// GET contributions for a specific user (optionally filtered by category)
 router.get('/contributors/by-user/:userId', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
+    const category = req.query.category || 'trading_investment';
     const { rows } = await query(
-      `SELECT sc.id as contributor_id, sc.amount, sc.notes,
-              cr.id, cr.description, cr.record_date, cr.notes as record_notes
+      `SELECT sc.id as contributor_id, sc.amount, sc.notes, sc.excluded,
+              cr.id, cr.description, cr.record_date, cr.notes as record_notes, cr.share_type
        FROM shares_contributors sc
        JOIN company_records cr ON cr.id = sc.shares_id
-       WHERE sc.user_id = $1 AND cr.category = 'trading_investment'
+       WHERE sc.user_id = $1 AND cr.category = $2
        ORDER BY cr.record_date DESC`,
-      [req.params.userId]
+      [req.params.userId, category]
     );
     res.json(rows);
   } catch (err) {
@@ -245,7 +265,9 @@ router.get('/shares-summary', authenticate, requireRole('admin', 'super_admin'),
     const { rows } = await query(
       `SELECT u.id, u.name, u.email, COALESCE(SUM(sc.amount), 0) as total_amount
        FROM shares_contributors sc
+       JOIN company_records cr ON cr.id = sc.shares_id
        JOIN users u ON u.id = sc.user_id
+       WHERE cr.category = 'shares' AND sc.excluded = FALSE
        GROUP BY u.id, u.name, u.email
        ORDER BY total_amount DESC`
     );
@@ -341,6 +363,20 @@ router.put('/:id/contributors/:contributorId', authenticate, requireRole('admin'
     const { rows } = await query(
       `UPDATE shares_contributors SET amount=$1, notes=$2, scheme=$3 WHERE id=$4 AND shares_id=$5 RETURNING *`,
       [parseFloat(amount), notes || null, scheme || null, req.params.contributorId, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Contributor not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH toggle contributor excluded
+router.patch('/:id/contributors/:contributorId/excluded', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      `UPDATE shares_contributors SET excluded = NOT excluded WHERE id=$1 AND shares_id=$2 RETURNING *`,
+      [req.params.contributorId, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Contributor not found' });
     res.json(rows[0]);

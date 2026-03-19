@@ -35,7 +35,16 @@ router.get('/', authenticate, async (req, res) => {
 // GET all stocks including inactive (admin)
 router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { rows } = await query(`SELECT * FROM stocks ORDER BY symbol`);
+    const { rows } = await query(`
+      SELECT s.*,
+        (SELECT MIN(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS first_investment_date,
+        (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'sell') AS last_sell_date,
+        u.id AS holder_id, u.name AS holder_name, u.email AS holder_email, u.user_type AS holder_user_type,
+        (SELECT CASE WHEN COUNT(DISTINCT h.avg_buy_price) = 1 THEN MIN(h.avg_buy_price) ELSE NULL END
+         FROM holdings h WHERE h.stock_id = s.id) AS common_buy_price
+      FROM stocks s
+      LEFT JOIN users u ON u.id = s.holder_user_id
+      ORDER BY s.symbol`);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -72,7 +81,11 @@ router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), as
           SELECT SUM(t.quantity)
           FROM transactions t WHERE t.user_id = u.id AND t.stock_id = s.id AND t.type = 'buy'
         ), h.quantity) AS total_bought_quantity,
-        CASE WHEN h.quantity > 0 THEN 'active' ELSE 'exited' END AS status
+        CASE WHEN h.quantity > 0 THEN 'active' ELSE 'exited' END AS status,
+        (
+          SELECT MIN(t.executed_at)
+          FROM transactions t WHERE t.user_id = u.id AND t.stock_id = s.id AND t.type = 'buy'
+        ) AS first_buy_date
       FROM holdings h
       JOIN users u ON u.id = h.user_id
       JOIN stocks s ON s.id = h.stock_id
@@ -148,17 +161,37 @@ router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, 
 // PUT update stock price / details
 router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { name, sector, current_price, is_active } = req.body;
+    const { name, sector, current_price, is_active, investment_settled, pnl_settled } = req.body;
     const { rows } = await query(
       `UPDATE stocks SET
-        name = COALESCE($1, name),
-        sector = COALESCE($2, sector),
-        previous_close = CASE WHEN $3 IS NOT NULL THEN current_price ELSE previous_close END,
-        current_price = COALESCE($3, current_price),
-        is_active = COALESCE($4, is_active),
+        name = COALESCE($1::varchar, name),
+        sector = COALESCE($2::varchar, sector),
+        previous_close = CASE WHEN $3::numeric IS NOT NULL THEN current_price ELSE previous_close END,
+        current_price = COALESCE($3::numeric, current_price),
+        is_active = COALESCE($4::boolean, is_active),
+        investment_settled = COALESCE($6::boolean, investment_settled),
+        pnl_settled = COALESCE($7::boolean, pnl_settled),
         last_updated = NOW()
        WHERE id = $5 RETURNING *`,
-      [name, sector, current_price, is_active, req.params.id]
+      [name ?? null, sector ?? null, current_price ?? null, is_active ?? null, req.params.id,
+       investment_settled ?? null, pnl_settled ?? null]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Stock not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('PUT /stocks/:id error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT set or clear stock holder
+router.put('/:id/holder', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { holder_user_id } = req.body; // null to clear
+    const { rows } = await query(
+      `UPDATE stocks SET holder_user_id = $1, last_updated = NOW() WHERE id = $2
+       RETURNING id, holder_user_id`,
+      [holder_user_id || null, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Stock not found' });
     res.json(rows[0]);
@@ -170,8 +203,10 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
 // DELETE stock
 router.delete('/:id', authenticate, requireRole('super_admin'), async (req, res) => {
   try {
-    await query('UPDATE stocks SET is_active = false WHERE id = $1', [req.params.id]);
-    res.json({ message: 'Stock deactivated' });
+    const { rows } = await query('SELECT id FROM stocks WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Stock not found' });
+    await query('DELETE FROM stocks WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Stock deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

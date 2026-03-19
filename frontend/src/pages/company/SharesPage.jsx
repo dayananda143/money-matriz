@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, PieChart as PieIcon, Users, Search, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { ArrowLeft, Plus, Edit2, Trash2, Copy, PieChart as PieIcon, Users, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, EyeOff, Eye } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -33,12 +33,21 @@ export default function SharesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Filter & sort
+  // View tabs
+  const [view, setView] = useState('entries');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [userRecords, setUserRecords] = useState([]);
+  const [userRecordsLoading, setUserRecordsLoading] = useState(false);
+
+  // Filter & sort & pagination
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [filterType, setFilterType] = useState('');
   const [sort, setSort] = useState({ col: 'record_date', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(5);
+  const [activeSlice, setActiveSlice] = useState(null);
 
   // Contributors state
   const [contributors, setContributors] = useState([]);
@@ -48,6 +57,7 @@ export default function SharesPage() {
   const [selectedContributor, setSelectedContributor] = useState(null);
   const [contributorSaving, setContributorSaving] = useState(false);
   const [contributorError, setContributorError] = useState('');
+  const [bulkAmounts, setBulkAmounts] = useState({});
 
   const load = () => {
     setLoading(true);
@@ -58,7 +68,7 @@ export default function SharesPage() {
       api.get('/config'),
     ]).then(([r, u, s, cfg]) => {
       setRecords(r.data);
-      setShareholders(u.data.filter(x => x.user_type === 'shareholder'));
+      setShareholders(u.data.filter(x => x.user_type === 'shareholder').sort((a, b) => a.name.localeCompare(b.name)));
       setSummary(s.data);
       setShareTypes(cfg.data.share_types || []);
     }).catch(console.error).finally(() => setLoading(false));
@@ -68,6 +78,7 @@ export default function SharesPage() {
 
   const toggleSort = (col) => {
     setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
+    setPage(1);
   };
 
   const filtered = useMemo(() => {
@@ -90,10 +101,28 @@ export default function SharesPage() {
       return 0;
     });
     return rows;
-  }, [records, search, dateFrom, dateTo, sort]);
+  }, [records, search, dateFrom, dateTo, filterType, sort]);
 
   const hasFilters = search || dateFrom || dateTo || filterType;
-  const clearFilters = () => { setSearch(''); setDateFrom(''); setDateTo(''); setFilterType(''); };
+  const clearFilters = () => { setSearch(''); setDateFrom(''); setDateTo(''); setFilterType(''); setPage(1); };
+
+  const loadUserRecords = async (userId) => {
+    if (!userId) { setUserRecords([]); return; }
+    setUserRecordsLoading(true);
+    try {
+      const res = await api.get(`/company/contributors/by-user/${userId}?category=shares`);
+      setUserRecords(res.data);
+    } catch (err) { console.error(err); }
+    finally { setUserRecordsLoading(false); }
+  };
+
+  const handleUserSelect = (userId) => {
+    setSelectedUserId(userId);
+    loadUserRecords(userId);
+  };
+
+  const totalPages = Math.ceil(filtered.length / limit);
+  const paginated = filtered.slice((page - 1) * limit, page * limit);
 
   const openCreate = () => { setForm({ ...EMPTY, record_date: today() }); setError(''); setModal('create'); };
   const openEdit = (r) => {
@@ -107,9 +136,19 @@ export default function SharesPage() {
     e.preventDefault(); setError(''); setSaving(true);
     try {
       const payload = { ...form, category: 'shares', amount: 0, share_type: form.share_type || null };
-      if (modal === 'create') await api.post('/company', payload);
-      else await api.put(`/company/${selected.id}`, payload);
-      setModal(null); load();
+      if (modal === 'create') {
+        const { data: newRecord } = await api.post('/company', payload);
+        load();
+        setSelected(newRecord);
+        setContributors([]);
+        setContributorForm(EMPTY_CONTRIBUTOR);
+        setContributorError('');
+        setContributorModal(null);
+        setModal('contributors');
+      } else {
+        await api.put(`/company/${selected.id}`, payload);
+        setModal(null); load();
+      }
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -159,6 +198,25 @@ export default function SharesPage() {
     } catch (err) { setContributorError(err.message); } finally { setContributorSaving(false); }
   };
 
+  const editContributor = async (e) => {
+    e.preventDefault(); setContributorError(''); setContributorSaving(true);
+    try {
+      await api.put(`/company/${selected.id}/contributors/${selectedContributor.id}`, {
+        amount: parseFloat(contributorForm.amount),
+        notes: contributorForm.notes || '',
+      });
+      setContributorModal(null);
+      await refreshContributors();
+    } catch (err) { setContributorError(err.message); } finally { setContributorSaving(false); }
+  };
+
+  const toggleExcludeContributor = async (c) => {
+    try {
+      await api.patch(`/company/${selected.id}/contributors/${c.id}/excluded`);
+      await refreshContributors();
+    } catch (err) { alert(err.message); }
+  };
+
   const confirmDeleteContributor = async () => {
     setContributorSaving(true);
     try {
@@ -168,17 +226,87 @@ export default function SharesPage() {
     } catch (err) { alert(err.message); } finally { setContributorSaving(false); }
   };
 
+  const [copyForm, setCopyForm] = useState({ description: '', record_date: today() });
+  const [copyError, setCopyError] = useState('');
+  const [copySaving, setCopySaving] = useState(false);
+
+  const openCopy = (r) => {
+    setSelected(r);
+    setCopyForm({ description: '', record_date: today() });
+    setCopyError('');
+    setModal('copy');
+  };
+
+  const submitCopy = async (e) => {
+    e.preventDefault();
+    setCopyError('');
+    setCopySaving(true);
+    try {
+      // Create new entry
+      const { data: newRecord } = await api.post('/company', {
+        category: 'shares',
+        amount: 0,
+        description: copyForm.description,
+        record_date: copyForm.record_date,
+        notes: selected.notes || '',
+        share_type: selected.share_type || null,
+      });
+      // Fetch original contributors and copy them
+      const { data: origContribs } = await api.get(`/company/${selected.id}/contributors`);
+      if (origContribs.length) {
+        await Promise.all(origContribs.map(c =>
+          api.post(`/company/${newRecord.id}/contributors`, {
+            user_id: c.user_id,
+            amount: parseFloat(c.amount),
+            notes: c.notes || '',
+          })
+        ));
+      }
+      setModal(null);
+      load();
+    } catch (err) { setCopyError(err.message); } finally { setCopySaving(false); }
+  };
+
+  const openBulkAdd = () => {
+    const init = {};
+    availableShareholders.forEach(s => { init[s.id] = ''; });
+    setBulkAmounts(init);
+    setContributorError('');
+    setContributorModal('bulk');
+  };
+
+  const submitBulkAdd = async (e) => {
+    e.preventDefault();
+    setContributorError('');
+    const entries = Object.entries(bulkAmounts).filter(([, v]) => v !== '' && parseFloat(v) > 0);
+    if (!entries.length) { setContributorError('Enter an amount for at least one shareholder.'); return; }
+    setContributorSaving(true);
+    try {
+      await Promise.all(entries.map(([userId, amount]) =>
+        api.post(`/company/${selected.id}/contributors`, { user_id: userId, amount: parseFloat(amount), notes: '' })
+      ));
+      setContributorModal(null);
+      await refreshContributors();
+    } catch (err) { setContributorError(err.message); } finally { setContributorSaving(false); }
+  };
+
   const totalContributed = records.reduce((s, r) => s + parseFloat(r.total_contributed || 0), 0);
   const totalEntries = records.length;
-  const totalShareholders = useMemo(() => {
-    const seen = new Set();
-    records.forEach(r => {
-      // We don't have per-record shareholders in the list view, just count from records
-    });
-    return seen.size;
-  }, [records]);
 
   const filteredTotal = filtered.reduce((s, r) => s + parseFloat(r.total_contributed || 0), 0);
+
+  const byType = useMemo(() => {
+    const map = {};
+    records.forEach(r => {
+      const t = r.share_type || '__none__';
+      if (!map[t]) map[t] = { total: 0, count: 0 };
+      map[t].total += parseFloat(r.total_contributed || 0);
+      map[t].count += 1;
+    });
+    return Object.entries(map)
+      .map(([type, { total, count }]) => ({ type, total, count }))
+      .sort((a, b) => b.total - a.total);
+  }, [records]);
 
   // Available shareholders not yet added to this entry
   const availableShareholders = useMemo(() => {
@@ -209,9 +337,6 @@ export default function SharesPage() {
             </div>
           </div>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Add Entry
-        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -233,6 +358,26 @@ export default function SharesPage() {
         </div>
       </div>
 
+      {/* By Type cards */}
+      {byType.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">By Type</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {byType.map(({ type, total, count }) => (
+              <div key={type} className="card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  {type === '__none__'
+                    ? <span className="text-xs text-gray-400 font-medium">No Type</span>
+                    : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{type.replace(/_/g, ' ')}</span>}
+                  <span className="text-xs text-gray-400">{count} entr{count !== 1 ? 'ies' : 'y'}</span>
+                </div>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Ownership Chart */}
       {summary.length > 0 && (() => {
         const grandTotal = summary.reduce((s, r) => s + parseFloat(r.total_amount), 0);
@@ -242,58 +387,137 @@ export default function SharesPage() {
           pct: grandTotal > 0 ? ((parseFloat(r.total_amount) / grandTotal) * 100).toFixed(1) : '0.0',
         }));
         return (
-          <div className="card p-5">
-            <h2 className="font-semibold text-gray-900 dark:text-white mb-4">Ownership Breakdown</h2>
-            <div className="flex flex-col lg:flex-row gap-6 items-center">
-              <div className="w-full lg:w-64 h-64 flex-shrink-0">
+          <div className="card p-4">
+            <h2 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Ownership Breakdown</h2>
+            <div className="flex flex-col lg:flex-row gap-4 items-center">
+              <div className="relative w-full lg:w-48 h-48 flex-shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100}
-                      dataKey="value" nameKey="name" paddingAngle={2}>
+                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={44} outerRadius={76}
+                      dataKey="value" nameKey="name" paddingAngle={2}
+                      onMouseEnter={(_, index) => setActiveSlice(index)}
+                      onMouseLeave={() => setActiveSlice(null)}>
                       {chartData.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        <Cell key={i} fill={COLORS[i % COLORS.length]}
+                          opacity={activeSlice === null || activeSlice === i ? 1 : 0.45} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(val) => fmt.currency(val)} />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  {activeSlice !== null ? (
+                    <div className="text-center px-1" style={{ maxWidth: 80 }}>
+                      <p className="text-[10px] font-medium text-gray-600 dark:text-gray-400 leading-tight break-words">{chartData[activeSlice].name}</p>
+                      <p className="text-xs font-bold text-violet-600 dark:text-violet-400 mt-0.5">{fmt.currency(chartData[activeSlice].value)}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{chartData[activeSlice].pct}%</p>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400">Total</p>
+                      <p className="text-xs font-bold text-gray-700 dark:text-gray-300">{fmt.currency(grandTotal)}</p>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex-1 w-full">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b border-gray-100 dark:border-gray-700">
-                      <th className="pb-2 font-medium">Shareholder</th>
-                      <th className="pb-2 font-medium text-right">Amount</th>
-                      <th className="pb-2 font-medium text-right">Share %</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {chartData.map((d, i) => (
-                      <tr key={d.name} className="border-b border-gray-50 dark:border-gray-800">
-                        <td className="py-2 flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className="text-gray-900 dark:text-white font-medium">{d.name}</span>
-                        </td>
-                        <td className="py-2 text-right font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(d.value)}</td>
-                        <td className="py-2 text-right">
-                          <span className="inline-block bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-semibold px-2 py-0.5 rounded-full">
-                            {d.pct}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    <tr>
-                      <td className="pt-3 font-semibold text-gray-700 dark:text-gray-300">Total</td>
-                      <td className="pt-3 text-right font-bold text-gray-900 dark:text-white">{fmt.currency(grandTotal)}</td>
-                      <td className="pt-3 text-right font-bold text-gray-500">100%</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs mb-2">
+                  {chartData.map((d, i) => (
+                    <div key={d.name} className="flex items-center justify-between border-b border-gray-50 dark:border-gray-800 py-1.5 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                        <span className="text-gray-800 dark:text-gray-200 font-medium truncate">{d.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(d.value)}</span>
+                        <span className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 font-semibold px-1.5 py-0.5 rounded-full">{d.pct}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-1 text-xs border-t border-gray-200 dark:border-gray-700">
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">Total</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900 dark:text-white">{fmt.currency(grandTotal)}</span>
+                    <span className="font-bold text-gray-500">100%</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* View tabs */}
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+        <button onClick={() => setView('entries')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'entries' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+          All Entries
+        </button>
+        <button onClick={() => setView('by_user')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'by_user' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+          By Shareholder
+        </button>
+      </div>
+
+      {view === 'by_user' ? (
+        <div className="space-y-4">
+          <div className="card p-4">
+            <label className="label">Select Shareholder</label>
+            <select className="input" value={selectedUserId} onChange={e => handleUserSelect(e.target.value)}>
+              <option value="">Choose a shareholder...</option>
+              {shareholders.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          {selectedUserId && (
+            <div className="card">
+              {userRecordsLoading ? (
+                <SkeletonTable rows={4} cols={5} />
+              ) : (
+                <>
+                  {userRecords.length > 0 && (
+                    <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+                      <span className="text-sm text-gray-500">{userRecords.length} entr{userRecords.length !== 1 ? 'ies' : 'y'}</span>
+                      <span className="text-sm font-bold text-violet-600 dark:text-violet-400">
+                        Total: {fmt.currency(userRecords.filter(r => !r.excluded).reduce((s, r) => s + parseFloat(r.amount), 0))}
+                      </span>
+                    </div>
+                  )}
+                  <Table>
+                    <thead>
+                      <tr>
+                        <Th>Date</Th>
+                        <Th>Description</Th>
+                        <Th>Type</Th>
+                        <Th>Amount</Th>
+                        <Th>Notes</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {!userRecords.length && <EmptyRow cols={5} message="No share entries found for this shareholder" />}
+                      {userRecords.map(r => (
+                        <tr key={r.contributor_id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${r.excluded ? 'opacity-50' : ''}`}>
+                          <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
+                          <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
+                          <Td>
+                            {r.share_type
+                              ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{r.share_type.replace(/_/g, ' ')}</span>
+                              : <span className="text-gray-400 text-xs">—</span>}
+                          </Td>
+                          <Td>
+                            <span className={`font-semibold ${r.excluded ? 'line-through text-gray-400' : 'text-violet-600 dark:text-violet-400'}`}>{fmt.currency(r.amount)}</span>
+                            {r.excluded && <span className="ml-2 text-xs text-orange-500 font-medium">excluded</span>}
+                          </Td>
+                          <Td className="text-gray-500 text-xs">{r.notes || r.record_notes || '—'}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (<>
 
       {/* Filters */}
       <div className="card p-4">
@@ -309,7 +533,7 @@ export default function SharesPage() {
             <input type="date" className="input py-2 text-sm" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date" />
           </div>
           {shareTypes.length > 0 && (
-            <select className="input py-2 text-sm min-w-[160px]" value={filterType} onChange={e => setFilterType(e.target.value)}>
+            <select className="input py-2 text-sm min-w-[160px]" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(1); }}>
               <option value="">All types</option>
               {shareTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
             </select>
@@ -323,6 +547,25 @@ export default function SharesPage() {
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-between px-5 pt-4 pb-2 flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="font-semibold text-gray-900 dark:text-white">Share Entries</h2>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+                {[5, 10, 15, 20, 25].map(n => (
+                  <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                    className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3">
+            <Plus size={15} /> Add Entry
+          </button>
+        </div>
         <Table>
           <thead>
             <tr>
@@ -345,7 +588,7 @@ export default function SharesPage() {
           </thead>
           <tbody>
             {!filtered.length && <EmptyRow cols={7} message={hasFilters ? 'No entries match your filters' : 'No share entries yet'} />}
-            {filtered.map(r => (
+            {paginated.map(r => (
               <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
                 <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
@@ -365,6 +608,7 @@ export default function SharesPage() {
                 <Td>
                   <div className="flex items-center gap-1">
                     <button onClick={() => openContributors(r)} className="p-1 text-gray-400 hover:text-violet-600" title="Shareholders"><Users size={14} /></button>
+                    <button onClick={() => openCopy(r)} className="p-1 text-gray-400 hover:text-emerald-600" title="Copy"><Copy size={14} /></button>
                     <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>
                     <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
                   </div>
@@ -373,7 +617,69 @@ export default function SharesPage() {
             ))}
           </tbody>
         </Table>
+        {totalPages > 1 && (
+          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+            {(() => {
+              const range = [];
+              for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+              }
+              const withEllipsis = [];
+              let prev = null;
+              for (const p of range) {
+                if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
+                withEllipsis.push(p);
+                prev = p;
+              }
+              return (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronLeft size={14} />
+                  </button>
+                  {withEllipsis.map((p, i) =>
+                    typeof p === 'string'
+                      ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                      : <button key={p} onClick={() => setPage(p)}
+                          className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                          {p}
+                        </button>
+                  )}
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
+
+      </>)}
+
+      {/* Copy modal */}
+      <Modal open={modal === 'copy'} onClose={() => setModal(null)} title={`Copy — ${selected?.description}`}>
+        <form onSubmit={submitCopy} className="space-y-4">
+          {copyError && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{copyError}</div>}
+          <p className="text-sm text-gray-500 dark:text-gray-400">All shareholder amounts will be copied. Just set the new description and date.</p>
+          <div>
+            <label className="label">New Description</label>
+            <input className="input" value={copyForm.description} autoFocus required
+              onChange={e => setCopyForm(f => ({ ...f, description: e.target.value }))}
+              placeholder="e.g. Q2 2025 allocation" />
+          </div>
+          <div>
+            <label className="label">Date</label>
+            <input type="date" className="input" value={copyForm.record_date} required
+              onChange={e => setCopyForm(f => ({ ...f, record_date: e.target.value }))} />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={copySaving} className="btn-primary flex-1">{copySaving ? 'Copying...' : 'Copy Entry'}</button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Create / Edit modal */}
       <Modal open={modal === 'create' || modal === 'edit'} onClose={() => setModal(null)}
@@ -387,16 +693,16 @@ export default function SharesPage() {
               placeholder="e.g. Founding round, Q1 2024 allocation" />
           </div>
           <div>
-            <label className="label">Type (optional)</label>
+            <label className="label">Type</label>
             {shareTypes.length > 0 ? (
-              <select className="input" value={form.share_type} onChange={e => setForm(f => ({ ...f, share_type: e.target.value }))}>
+              <select className="input" value={form.share_type} onChange={e => setForm(f => ({ ...f, share_type: e.target.value }))} required>
                 <option value="">Select type...</option>
                 {shareTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
               </select>
             ) : (
               <input className="input" value={form.share_type}
                 onChange={e => setForm(f => ({ ...f, share_type: e.target.value }))}
-                placeholder="No types configured — add in Platform Settings" />
+                placeholder="No types configured — add in Platform Settings" required />
             )}
           </div>
           <div>
@@ -433,10 +739,16 @@ export default function SharesPage() {
         title={selected ? `Shareholders — ${selected.description}` : 'Shareholders'}
         headerAction={
           availableShareholders.length > 0 ? (
-            <button onClick={() => { setContributorForm(EMPTY_CONTRIBUTOR); setContributorError(''); setContributorModal('add'); }}
-              className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium">
-              <Plus size={15} /> Add Shareholder
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={openBulkAdd}
+                className="flex items-center gap-1 text-sm text-violet-600 hover:text-violet-700 font-medium">
+                <Users size={15} /> Add All
+              </button>
+              <button onClick={() => { setContributorForm(EMPTY_CONTRIBUTOR); setContributorError(''); setContributorModal('add'); }}
+                className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium">
+                <Plus size={15} /> Add One
+              </button>
+            </div>
           ) : null
         }>
         <div className="space-y-4">
@@ -462,15 +774,27 @@ export default function SharesPage() {
                 {!contributors.length && <EmptyRow cols={4} message="No shareholders added yet" />}
                 {contributors.map(c => (
                   <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <Td>
+                    <Td className={c.excluded ? 'opacity-40' : ''}>
                       <p className="font-medium text-gray-900 dark:text-white text-sm">{c.user_name}</p>
                       <p className="text-xs text-gray-400">{c.user_email}</p>
                     </Td>
-                    <Td className="font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(c.amount)}</Td>
-                    <Td className="text-gray-500 text-xs">{c.notes || '—'}</Td>
+                    <Td className={c.excluded ? 'opacity-40' : ''}>
+                      <span className={`font-semibold ${c.excluded ? 'line-through text-gray-400' : 'text-violet-600 dark:text-violet-400'}`}>{fmt.currency(c.amount)}</span>
+                      {c.excluded && <span className="ml-2 text-xs text-orange-500 font-medium">excluded</span>}
+                    </Td>
+                    <Td className={`text-gray-500 text-xs${c.excluded ? ' opacity-40' : ''}`}>{c.notes || '—'}</Td>
                     <Td>
-                      <button onClick={() => { setSelectedContributor(c); setContributorModal('delete'); }}
-                        className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => toggleExcludeContributor(c)}
+                          className={`p-1 ${c.excluded ? 'text-orange-500 hover:text-orange-600' : 'text-gray-400 hover:text-orange-500'}`}
+                          title={c.excluded ? 'Include' : 'Exclude'}>
+                          {c.excluded ? <Eye size={14} /> : <EyeOff size={14} />}
+                        </button>
+                        <button onClick={() => { setSelectedContributor(c); setContributorForm({ user_id: c.user_id, amount: c.amount, notes: c.notes || '' }); setContributorError(''); setContributorModal('edit'); }}
+                          className="p-1 text-gray-400 hover:text-brand-600"><Edit2 size={14} /></button>
+                        <button onClick={() => { setSelectedContributor(c); setContributorModal('delete'); }}
+                          className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+                      </div>
                     </Td>
                   </tr>
                 ))}
@@ -508,6 +832,52 @@ export default function SharesPage() {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setContributorModal(null)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={contributorSaving} className="btn-primary flex-1">{contributorSaving ? 'Saving...' : 'Add'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Edit contributor modal */}
+      <Modal open={contributorModal === 'edit'} onClose={() => setContributorModal(null)} title={`Edit — ${selectedContributor?.user_name}`}>
+        <form onSubmit={editContributor} className="space-y-4">
+          {contributorError && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{contributorError}</div>}
+          <div>
+            <label className="label">Amount (₹)</label>
+            <input type="number" className="input" min="0" step="0.01" value={contributorForm.amount}
+              onChange={e => setContributorForm(f => ({ ...f, amount: e.target.value }))} required />
+          </div>
+          <div>
+            <label className="label">Notes (optional)</label>
+            <textarea className="input resize-none" rows={2} value={contributorForm.notes}
+              onChange={e => setContributorForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setContributorModal(null)} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={contributorSaving} className="btn-primary flex-1">{contributorSaving ? 'Saving...' : 'Save'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bulk add modal */}
+      <Modal open={contributorModal === 'bulk'} onClose={() => setContributorModal(null)} title="Add All Shareholders">
+        <form onSubmit={submitBulkAdd} className="space-y-4">
+          {contributorError && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{contributorError}</div>}
+          <p className="text-sm text-gray-500 dark:text-gray-400">Enter amounts for each shareholder. Leave blank to skip.</p>
+          <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+            {availableShareholders.map(s => (
+              <div key={s.id} className="flex items-center gap-3">
+                <span className="flex-1 text-sm font-medium text-gray-900 dark:text-white truncate">{s.name}</span>
+                <input
+                  type="number" min="0" step="0.01" placeholder="Amount (₹)"
+                  className="input w-40 py-1.5 text-sm"
+                  value={bulkAmounts[s.id] ?? ''}
+                  onChange={e => setBulkAmounts(prev => ({ ...prev, [s.id]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setContributorModal(null)} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={contributorSaving} className="btn-primary flex-1">{contributorSaving ? 'Saving...' : 'Add All'}</button>
           </div>
         </form>
       </Modal>

@@ -25,6 +25,7 @@ import TaxPage from './pages/company/TaxPage';
 import TradingInvestmentPage from './pages/company/TradingInvestmentPage';
 import ClientsPaymentPage from './pages/company/ClientsPaymentPage';
 import SharesPage from './pages/company/SharesPage';
+import DepositsPage from './pages/company/DepositsPage';
 import CompanyDashboardPage from './pages/company/CompanyDashboardPage';
 
 // Admin pages
@@ -70,6 +71,7 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/company/trading-investment" element={<TradingInvestmentPage />} />}
         {isAdmin && <Route path="/company/clients-payment" element={<ClientsPaymentPage />} />}
         {isAdmin && <Route path="/company/shares" element={<SharesPage />} />}
+        {isAdmin && <Route path="/company/deposits" element={<DepositsPage />} />}
 
         {/* Admin routes */}
         {isAdmin && <Route path="/admin/users" element={<UsersPage />} />}

@@ -214,6 +214,15 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
         WHERE user_id = $2 AND stock_id = $3
       `, [quantity, userId, stock_id]);
       await query('UPDATE balances SET cash_balance = cash_balance + $1, updated_at = NOW() WHERE user_id = $2', [total, userId]);
+
+      // If all holders of this stock have exited (quantity = 0), mark stock as inactive
+      const remainingRes = await query(
+        'SELECT COUNT(*) FROM holdings WHERE stock_id = $1 AND quantity > 0',
+        [stock_id]
+      );
+      if (parseInt(remainingRes.rows[0].count) === 0) {
+        await query('UPDATE stocks SET is_active = false, last_updated = NOW() WHERE id = $1', [stock_id]);
+      }
     }
 
     res.status(201).json(txRows[0]);
@@ -227,7 +236,7 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
 router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
   try {
     if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    const { quantity, avg_buy_price } = req.body;
+    const { quantity, avg_buy_price, buy_date } = req.body;
     if (quantity === undefined || avg_buy_price === undefined) {
       return res.status(400).json({ error: 'quantity and avg_buy_price required' });
     }
@@ -238,6 +247,16 @@ router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
         quantity = $3, avg_buy_price = $4, updated_at = NOW()
       RETURNING *
     `, [req.params.userId, req.params.stockId, quantity, avg_buy_price]);
+    if (buy_date) {
+      await query(`
+        UPDATE transactions SET executed_at = $1
+        WHERE id = (
+          SELECT id FROM transactions
+          WHERE user_id = $2 AND stock_id = $3 AND type = 'buy'
+          ORDER BY executed_at ASC LIMIT 1
+        )
+      `, [buy_date, req.params.userId, req.params.stockId]);
+    }
     res.json(rows[0]);
   } catch (err) {
     console.error(err);

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart } from 'lucide-react';
+import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart, Building2 } from 'lucide-react';
 
 const tiles = [
   {
@@ -57,6 +57,14 @@ const tiles = [
     description: 'Track shareholder equity, share allocations and ownership stakes in the company',
     color: 'text-violet-600 dark:text-violet-400',
     bg: 'bg-violet-50 dark:bg-violet-900/20',
+  },
+  {
+    to: '/company/deposits',
+    icon: Building2,
+    label: 'Bank Deposits',
+    description: 'Track FD & RD investments and compare against current bank values',
+    color: 'text-teal-600 dark:text-teal-400',
+    bg: 'bg-teal-50 dark:bg-teal-900/20',
   },
 ];
 
