@@ -120,7 +120,7 @@ export default function ClientDetailPage() {
                 <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                   <Td>{h.stock_name}</Td>
-                  <Td>{fmt.number(h.quantity, 4)}</Td>
+                  <Td>{fmt.number(h.quantity, 2)}</Td>
                   <Td>{fmt.currency(h.avg_buy_price)}</Td>
                   <Td>{fmt.currency(h.current_price)}</Td>
                   <Td className="font-medium">{fmt.currency(h.current_value)}</Td>
@@ -143,7 +143,7 @@ export default function ClientDetailPage() {
                   <Td>{fmt.datetime(t.executed_at)}</Td>
                   <Td><span className={t.type === 'buy' ? 'badge-green' : 'badge-red'}>{t.type.toUpperCase()}</span></Td>
                   <Td><span className="font-medium">{t.symbol}</span></Td>
-                  <Td>{fmt.number(t.quantity, 4)}</Td>
+                  <Td>{fmt.number(t.quantity, 2)}</Td>
                   <Td>{fmt.currency(t.price)}</Td>
                   <Td className="font-medium">{fmt.currency(t.total)}</Td>
                   <Td className="text-gray-500 text-xs">{t.notes || '—'}</Td>
@@ -194,7 +194,7 @@ export default function ClientDetailPage() {
             </div>
             <div>
               <label className="label">Quantity</label>
-              <input type="number" className="input" placeholder="0" min="0" step="0.0001" value={tradeForm.quantity} onChange={e => setTradeForm(f => ({ ...f, quantity: e.target.value }))} required />
+              <input type="number" className="input" placeholder="0" min="0" step="0.01" value={tradeForm.quantity} onChange={e => setTradeForm(f => ({ ...f, quantity: e.target.value }))} required />
             </div>
           </div>
           <div>

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Settings, Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart
+  Settings, Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase
 } from 'lucide-react';
 
 const navConfig = {
@@ -18,6 +18,7 @@ const navConfig = {
     { to: '/transactions', icon: ArrowLeftRight, label: 'My Transactions' },
     { to: '/clients', icon: Users, label: 'My Clients' },
     { to: '/company/dashboard', icon: PieChart, label: 'Company Dashboard' },
+    { to: '/ideas', icon: Lightbulb, label: 'Ideas' },
   ],
   admin_extra: [
     { to: '/clients', icon: Users, label: 'All Clients' },
@@ -25,6 +26,7 @@ const navConfig = {
     { to: '/admin/users', icon: UserCircle, label: 'Users' },
     { to: '/admin/stocks', icon: BarChart2, label: 'Stocks' },
     { to: '/admin/relationships', icon: Link2, label: 'Relationships' },
+    { to: '/admin/brokerage-accounts', icon: Briefcase, label: 'Brokerage Accounts' },
   ],
   super_admin_extra: [
     { to: '/admin/overview', icon: Settings, label: 'Overview' },
@@ -58,9 +60,11 @@ export default function Sidebar({ open, onClose }) {
 
   const isAdmin = user.role === 'admin' || user.role === 'super_admin';
   const isSuperAdmin = user.role === 'super_admin';
-  const base = (navConfig[user.user_type] || []).filter(i => !(isSuperAdmin && i.to === '/clients'));
+  const isShareholder = user.user_type === 'shareholder';
+  const base = (navConfig[user.user_type] || []).filter(i => !(isSuperAdmin && i.to === '/clients') && i.to !== '/ideas');
   const adminItems = isAdmin ? navConfig.admin_extra : [];
   const superItems = user.role === 'super_admin' ? navConfig.super_admin_extra : [];
+  const ideasItem = (isAdmin || isShareholder) ? [{ to: '/ideas', icon: Lightbulb, label: 'Ideas' }] : [];
   const seen = new Set();
   const allItems = [...base, ...adminItems, ...superItems].filter(i => {
     if (seen.has(i.to)) return false;
@@ -107,6 +111,12 @@ export default function Sidebar({ open, onClose }) {
             <>
               <p className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">System</p>
               {superItems.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
+            </>
+          )}
+          {ideasItem.length > 0 && (
+            <>
+              <p className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Community</p>
+              {ideasItem.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
             </>
           )}
         </nav>

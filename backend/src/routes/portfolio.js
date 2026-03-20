@@ -168,11 +168,12 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { stock_id, type, quantity, price, notes, executed_at } = req.body;
+    const { stock_id, type, quantity, price, notes, executed_at, group_id } = req.body;
     if (!stock_id || !type || !quantity || !price) {
       return res.status(400).json({ error: 'stock_id, type, quantity, price required' });
     }
-    const total = parseFloat(quantity) * parseFloat(price);
+    // Use provided total if given (preserves exact invested amount), otherwise compute
+    const total = req.body.total != null ? parseFloat(req.body.total) : parseFloat(quantity) * parseFloat(price);
 
     // Get stock
     const stockRes = await query('SELECT * FROM stocks WHERE id = $1 AND is_active = true', [stock_id]);
@@ -200,10 +201,11 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
     // Insert transaction
     const txExecAt = executed_at || new Date().toISOString();
     const brokerage = type === 'sell' ? parseFloat(req.body.brokerage || 0) : 0;
+    const txGroupId = group_id ? parseInt(group_id) : null;
     const { rows: txRows } = await query(
-      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [userId, stock_id, type, quantity, price, total, notes || null, txExecAt, req.user.id, brokerage]
+      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [userId, stock_id, type, quantity, price, total, notes || null, txExecAt, req.user.id, brokerage, txGroupId]
     );
 
     // Update holdings

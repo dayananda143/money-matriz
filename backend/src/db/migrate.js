@@ -134,6 +134,23 @@ async function migrate() {
   // Stockholder assigned to each transaction group
   await query(`ALTER TABLE stock_groups ADD COLUMN IF NOT EXISTS holder_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
 
+  // Group_id on individual transactions (to track which transaction group each buy belongs to)
+  await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES stock_groups(id) ON DELETE SET NULL`);
+
+  // Ideas board
+  await query(`
+    CREATE TABLE IF NOT EXISTS ideas (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      title VARCHAR(255) NOT NULL,
+      content TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await query(`ALTER TABLE ideas ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'`);
+
   // Seed super admin if not exists
   const { rows } = await query(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`);
   if (rows.length === 0) {

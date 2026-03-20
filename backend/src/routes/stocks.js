@@ -58,6 +58,49 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
   }
 });
 
+// GET all users who are holders in any stock group (for brokerage accounts page)
+router.get('/brokerage-accounts/holders', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT DISTINCT u.id, u.name, u.email, u.user_type, u.role,
+        COUNT(DISTINCT g.id)::int AS group_count,
+        COUNT(DISTINCT g.stock_id)::int AS stock_count
+      FROM users u
+      JOIN stock_groups g ON g.holder_id = u.id
+      GROUP BY u.id, u.name, u.email, u.user_type, u.role
+      ORDER BY u.name ASC
+    `);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET all stocks/groups for a specific holder user
+router.get('/brokerage-accounts/holder/:userId', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT
+        s.id AS stock_id, s.symbol, s.name AS stock_name, s.sector, s.current_price, s.is_active,
+        g.id AS group_id, g.label AS group_label,
+        g.investment_settled, g.pnl_settled,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'buy'), 0) AS total_bought,
+        COALESCE(SUM(t.total) FILTER (WHERE t.type = 'buy'), 0) AS total_invested,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'sell'), 0) AS total_sold,
+        COALESCE(SUM(t.quantity * t.price) FILTER (WHERE t.type = 'sell'), 0) AS total_sell_amount,
+        COUNT(DISTINCT t.user_id) FILTER (WHERE t.type = 'buy')::int AS investor_count,
+        MIN(t.executed_at) FILTER (WHERE t.type = 'buy') AS first_buy_date,
+        MAX(t.executed_at) FILTER (WHERE t.type = 'sell') AS last_sell_date
+      FROM stock_groups g
+      JOIN stocks s ON s.id = g.stock_id
+      LEFT JOIN transactions t ON t.group_id = g.id
+      WHERE g.holder_id = $1
+      GROUP BY s.id, s.symbol, s.name, s.sector, s.current_price, s.is_active,
+               g.id, g.label, g.investment_settled, g.pnl_settled
+      ORDER BY s.symbol ASC, g.created_at ASC
+    `, [req.params.userId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET holders of a specific stock (who invested and how much)
 router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
@@ -122,6 +165,67 @@ router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), as
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// GET individual investments (buy transactions) for a stock — one row per investment
+router.get('/:id/investments', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT
+        t.id AS txn_id,
+        u.id,
+        u.name, u.email, u.user_type, u.role,
+        t.group_id,
+        (SELECT sg.label FROM stock_groups sg WHERE sg.id = t.group_id) AS group_label,
+        s.current_price,
+        -- Per-investment fields (aliased to match holder field names for table compatibility)
+        t.quantity,
+        t.quantity AS total_bought_quantity,
+        t.price AS avg_buy_price,
+        t.total AS invested_amount,
+        t.total AS total_buy_amount,
+        t.executed_at AS first_buy_date,
+        ROUND((t.quantity * s.current_price)::numeric, 2) AS current_value,
+        ROUND((t.quantity * s.current_price - t.total)::numeric, 2) AS unrealized_pnl,
+        CASE WHEN t.total > 0
+          THEN ROUND(((t.quantity * s.current_price - t.total) / t.total * 100)::numeric, 2)
+          ELSE 0 END AS pnl_percent,
+        CASE WHEN ROUND(COALESCE((
+          SELECT SUM(sel.quantity) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id
+        ), 0)::numeric, 2) >= ROUND(t.quantity::numeric, 2) THEN 'exited' ELSE 'active' END AS status,
+        GREATEST(0, ROUND((t.quantity - COALESCE((
+          SELECT SUM(sel.quantity) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id
+        ), 0))::numeric, 2)) AS remaining_quantity,
+        -- Per-group sell aggregates
+        COALESCE((SELECT SUM(sel.quantity * sel.price) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS total_sell_amount,
+        COALESCE((SELECT SUM(sel.brokerage) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS total_sell_brokerage,
+        COALESCE((SELECT SUM(sel.quantity * sel.price) - SUM(sel.quantity) * t.price FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS realized_pnl,
+        (SELECT ROUND((SUM(sel.quantity * sel.price) / NULLIF(SUM(sel.quantity), 0))::numeric, 2) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id) AS avg_sell_price,
+        (SELECT MAX(sel.executed_at) FROM transactions sel
+          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
+            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id) AS last_sell_date,
+        t.notes
+      FROM transactions t
+      JOIN users u ON u.id = t.user_id
+      JOIN stocks s ON s.id = t.stock_id
+      LEFT JOIN holdings h ON h.user_id = t.user_id AND h.stock_id = t.stock_id
+      WHERE t.stock_id = $1 AND t.type = 'buy'
+      ORDER BY t.executed_at DESC, u.name ASC
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
 // GET single stock by id (admin)
@@ -229,13 +333,24 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
 // GET transaction history for a specific holder in a stock
 router.get('/:id/holders/:holderId/transactions', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { rows } = await query(
-      `SELECT t.id, t.type, t.quantity, t.price, t.total, t.notes, t.executed_at, COALESCE(t.brokerage, 0) AS brokerage
-       FROM transactions t
-       WHERE t.stock_id = $1 AND t.user_id = $2
-       ORDER BY t.executed_at ASC`,
-      [req.params.id, req.params.holderId]
-    );
+    const { group_id } = req.query;
+    let sql, params;
+    if (group_id) {
+      // Show only transactions (buy and sell) belonging to this group
+      sql = `SELECT t.id, t.type, t.quantity, t.price, t.total, t.notes, t.executed_at, COALESCE(t.brokerage, 0) AS brokerage, t.group_id
+             FROM transactions t
+             WHERE t.stock_id = $1 AND t.user_id = $2
+               AND t.group_id = $3
+             ORDER BY t.executed_at ASC`;
+      params = [req.params.id, req.params.holderId, group_id];
+    } else {
+      sql = `SELECT t.id, t.type, t.quantity, t.price, t.total, t.notes, t.executed_at, COALESCE(t.brokerage, 0) AS brokerage, t.group_id
+             FROM transactions t
+             WHERE t.stock_id = $1 AND t.user_id = $2
+             ORDER BY t.executed_at ASC`;
+      params = [req.params.id, req.params.holderId];
+    }
+    const { rows } = await query(sql, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -255,7 +370,7 @@ router.put('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super
 
     const newQty = parseFloat(quantity);
     const newPrice = parseFloat(price);
-    const newTotal = parseFloat((newQty * newPrice).toFixed(4));
+    const newTotal = parseFloat((newQty * newPrice).toFixed(2));
     const oldQty = parseFloat(old.quantity);
     const newBrokerage = old.type === 'sell' ? parseFloat(brokerage ?? old.brokerage ?? 0) : 0;
 
@@ -286,7 +401,7 @@ router.put('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super
       if (agg && parseFloat(agg.total_qty) > 0) {
         await query(
           `UPDATE holdings SET avg_buy_price = $1 WHERE user_id = $2 AND stock_id = $3`,
-          [(parseFloat(agg.total_amt) / parseFloat(agg.total_qty)).toFixed(4), old.user_id, stockId]
+          [(parseFloat(agg.total_amt) / parseFloat(agg.total_qty)).toFixed(2), old.user_id, stockId]
         );
       }
     }
@@ -324,16 +439,30 @@ router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'su
     await query(`DELETE FROM transactions WHERE id = $1`, [txnId]);
 
     if (txn.type === 'buy') {
-      const { rows: [agg] } = await query(
-        `SELECT SUM(quantity) AS total_qty, SUM(total) AS total_amt
-         FROM transactions WHERE user_id = $1 AND stock_id = $2 AND type = 'buy'`,
+      // Check remaining holding quantity
+      const { rows: [holding] } = await query(
+        `SELECT quantity FROM holdings WHERE user_id = $1 AND stock_id = $2`,
         [txn.user_id, stockId]
       );
-      if (agg && parseFloat(agg.total_qty) > 0) {
+      if (holding && parseFloat(holding.quantity) <= 0) {
+        // No shares left — remove the holding entirely
         await query(
-          `UPDATE holdings SET avg_buy_price = $1 WHERE user_id = $2 AND stock_id = $3`,
-          [(parseFloat(agg.total_amt) / parseFloat(agg.total_qty)).toFixed(4), txn.user_id, stockId]
+          `DELETE FROM holdings WHERE user_id = $1 AND stock_id = $2`,
+          [txn.user_id, stockId]
         );
+      } else {
+        // Recalculate avg_buy_price from remaining buy transactions
+        const { rows: [agg] } = await query(
+          `SELECT SUM(quantity) AS total_qty, SUM(total) AS total_amt
+           FROM transactions WHERE user_id = $1 AND stock_id = $2 AND type = 'buy'`,
+          [txn.user_id, stockId]
+        );
+        if (agg && parseFloat(agg.total_qty) > 0) {
+          await query(
+            `UPDATE holdings SET avg_buy_price = $1 WHERE user_id = $2 AND stock_id = $3`,
+            [(parseFloat(agg.total_amt) / parseFloat(agg.total_qty)).toFixed(2), txn.user_id, stockId]
+          );
+        }
       }
     }
 

@@ -6,9 +6,18 @@ export const fmt = {
     if (!d) return '—';
     const s = String(d).slice(0, 10);
     const [y, m, day] = s.split('-').map(Number);
-    return new Date(y, m - 1, day).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    return `${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}-${y}`;
   },
-  datetime: (d) => d ? new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—',
+  datetime: (d) => {
+    if (!d) return '—';
+    const dt = new Date(d);
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const yyyy = dt.getFullYear();
+    const hh = String(dt.getHours()).padStart(2, '0');
+    const min = String(dt.getMinutes()).padStart(2, '0');
+    return `${mm}-${dd}-${yyyy} ${hh}:${min}`;
+  },
 };
 
 export const pnlColor = (n) => parseFloat(n) >= 0 ? 'positive' : 'negative';

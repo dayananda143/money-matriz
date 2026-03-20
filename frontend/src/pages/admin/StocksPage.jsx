@@ -24,7 +24,7 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
 
   useEffect(() => {
     if (!open) return;
-    setPrice(stock?.current_price || '');
+    setPrice(stock?.current_price ? parseFloat(stock.current_price).toFixed(2) : '');
     setExecutedAt(today());
     setNotes('');
     setSelections({});
@@ -40,36 +40,35 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
     return next;
   });
 
-  const setQty = (id, val) => setSelections(s => ({ ...s, [id]: val }));
+  const setAmount = (id, val) => setSelections(s => ({ ...s, [id]: val }));
 
   const tabs = ['all', ...([...new Set(users.map(u => u.user_type))].sort())];
   const visibleUsers = tab === 'all' ? users : users.filter(u => u.user_type === tab);
   const selected = Object.entries(selections);
-  const totalShares = selected.reduce((s, [, q]) => s + (parseFloat(q) || 0), 0);
-  const totalValue = totalShares * (parseFloat(price) || 0);
+  const p = parseFloat(price) || 0;
+  const totalValue = selected.reduce((s, [, a]) => s + (parseFloat(a) || 0), 0);
+  const totalShares = p > 0 ? totalValue / p : 0;
 
   const submit = async (e) => {
     e.preventDefault();
     if (!selected.length) { setError('Select at least one investor'); return; }
-    const invalid = selected.find(([, q]) => !q || parseFloat(q) <= 0);
-    if (invalid) { setError('Enter quantity for all selected investors'); return; }
+    const invalid = selected.find(([, a]) => !a || parseFloat(a) <= 0);
+    if (invalid) { setError('Enter investment amount for all selected investors'); return; }
+    if (!p) { setError('Enter buy price first'); return; }
     setError(''); setSaving(true);
     try {
-      await Promise.all(selected.map(([userId, qty]) =>
+      await Promise.all(selected.map(([userId, amount]) =>
         api.post(`/portfolio/${userId}/trade`, {
           stock_id: stock.id,
           type: 'buy',
-          quantity: parseFloat(qty),
-          price: parseFloat(price),
+          quantity: parseFloat((parseFloat(amount) / p).toFixed(2)),
+          price: p,
+          total: parseFloat(parseFloat(amount).toFixed(2)),
           notes: notes || undefined,
           executed_at: executedAt || undefined,
+          group_id: groupId || undefined,
         })
       ));
-      if (groupId) {
-        await Promise.all(selected.map(([userId]) =>
-          api.put(`/stocks/${stock.id}/holders/${userId}/group`, { group_id: groupId }).catch(() => {})
-        ));
-      }
       onDone();
       onClose();
     } catch (err) { setError(err.message); } finally { setSaving(false); }
@@ -94,7 +93,7 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
         </div>
 
         <div>
-          <label className="label">Investors & Quantities</label>
+          <label className="label">Investors & Amounts</label>
           <div className="flex gap-1 mb-2">
             {tabs.map(t => (
               <button key={t} type="button" onClick={() => setTab(t)}
@@ -107,7 +106,8 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
             {visibleUsers.length === 0 && <div className="px-3 py-4 text-center text-sm text-gray-400">No users in this category</div>}
             {visibleUsers.map(u => {
               const checked = u.id in selections;
-              const qty = selections[u.id] ?? '';
+              const amount = selections[u.id] ?? '';
+              const calcQty = amount && p > 0 ? (parseFloat(amount) / p).toFixed(2) : null;
               return (
                 <div key={u.id} className={`flex items-center gap-3 px-3 py-2 ${checked ? 'bg-brand-50 dark:bg-brand-900/10' : ''}`}>
                   <input type="checkbox" checked={checked} onChange={() => toggle(u.id)}
@@ -116,13 +116,13 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
                     {u.name} <span className="text-xs text-gray-400">({u.user_type})</span>
                   </span>
                   {checked && (
-                    <input type="number" min="0.0001" step="0.0001" placeholder="Qty"
-                      value={qty} onChange={e => setQty(u.id, e.target.value)}
-                      className="input w-24 py-1 text-sm" autoFocus />
+                    <input type="number" min="0.01" step="0.01" placeholder="Amount (₹)"
+                      value={amount} onChange={e => setAmount(u.id, e.target.value)}
+                      className="input w-28 py-1 text-sm" autoFocus />
                   )}
-                  {checked && qty && price && (
-                    <span className="text-xs text-brand-600 dark:text-brand-400 flex-shrink-0 w-24 text-right">
-                      {fmt.currency(parseFloat(qty) * parseFloat(price))}
+                  {checked && calcQty && (
+                    <span className="text-xs text-brand-600 dark:text-brand-400 flex-shrink-0 w-20 text-right">
+                      {calcQty} shares
                     </span>
                   )}
                 </div>
@@ -131,7 +131,7 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
           </div>
         </div>
 
-        {selected.length > 0 && price && totalShares > 0 && (
+        {selected.length > 0 && price && totalValue > 0 && (
           <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-400 flex justify-between">
             <span>{selected.length} investor{selected.length > 1 ? 's' : ''} · {fmt.number(totalShares, 2)} shares</span>
             <strong>{fmt.currency(totalValue)}</strong>
@@ -191,7 +191,7 @@ function EditHoldingModal({ stock, holder, open, onClose, onDone }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Quantity (Shares)</label>
-            <input type="number" className="input" min="0" step="0.0001" value={form.quantity}
+            <input type="number" className="input" min="0" step="0.01" value={form.quantity}
               onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} required />
           </div>
           <div>
@@ -219,7 +219,7 @@ function EditHoldingModal({ stock, holder, open, onClose, onDone }) {
   );
 }
 
-function SellModal({ stock, holder, open, onClose, onDone }) {
+function SellModal({ stock, holder, open, onClose, onDone, groupId }) {
   const [form, setForm] = useState({ quantity: '', price: '', brokerage: '', notes: '', executed_at: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -227,7 +227,7 @@ function SellModal({ stock, holder, open, onClose, onDone }) {
   useEffect(() => {
     if (!open || !holder || !stock) return;
     const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
-    setForm({ quantity: '', price: stock.current_price, brokerage: '', notes: '', executed_at: today });
+    setForm({ quantity: '', price: stock.current_price ? parseFloat(stock.current_price).toFixed(2) : '', brokerage: '', notes: '', executed_at: today });
     setError('');
   }, [open, holder, stock]);
 
@@ -243,13 +243,14 @@ function SellModal({ stock, holder, open, onClose, onDone }) {
         brokerage: form.brokerage ? parseFloat(form.brokerage) : 0,
         notes: form.notes || undefined,
         executed_at: form.executed_at || undefined,
+        group_id: groupId || undefined,
       });
       onDone();
       onClose();
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
-  const maxQty = parseFloat(holder?.quantity || 0);
+  const maxQty = parseFloat(parseFloat(holder?.quantity || 0).toFixed(2));
 
   return (
     <Modal open={open} onClose={onClose} title={holder ? `Sell — ${holder.name} · ${stock?.symbol}` : ''}>
@@ -264,9 +265,9 @@ function SellModal({ stock, holder, open, onClose, onDone }) {
           <div>
             <label className="label">Quantity to Sell</label>
             <div className="flex gap-2">
-              <input type="number" className="input" min="0.0001" max={maxQty} step="0.0001" value={form.quantity}
+              <input type="number" className="input" min="0.01" max={maxQty} step="0.01" value={form.quantity}
                 onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} required />
-              <button type="button" onClick={() => setForm(f => ({ ...f, quantity: maxQty }))}
+              <button type="button" onClick={() => setForm(f => ({ ...f, quantity: parseFloat(maxQty).toFixed(2) }))}
                 className="btn-secondary px-3 flex-shrink-0 text-xs whitespace-nowrap">
                 Sell All
               </button>
@@ -317,15 +318,15 @@ function SellModal({ stock, holder, open, onClose, onDone }) {
   );
 }
 
-function SellAllModal({ stock, holders, open, onClose, onDone }) {
-  const activeHolders = holders.filter(h => h.status === 'active');
+function SellAllModal({ stock, holders, open, onClose, onDone, groupId }) {
+  const activeHolders = holders.filter(h => h.status === 'active' && parseFloat(h.quantity) > 0);
   const [form, setForm] = useState({ price: '', executed_at: '', brokerage: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open || !stock) return;
-    setForm({ price: stock.current_price, brokerage: '', executed_at: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
+    setForm({ price: stock.current_price ? parseFloat(stock.current_price).toFixed(2) : '', brokerage: '', executed_at: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
     setError('');
   }, [open, stock]);
 
@@ -347,6 +348,7 @@ function SellAllModal({ stock, holders, open, onClose, onDone }) {
           brokerage: holderBrokerage,
           executed_at: form.executed_at || undefined,
           notes: 'Bulk sell all shares',
+          group_id: groupId || undefined,
         });
       }));
       onDone();
@@ -523,6 +525,7 @@ const holdingPeriod = (startStr, endStr) => {
 
 export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast, fullPage = false }) {
   const [holders, setHolders] = useState([]);
+  const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [sellAllOpen, setSellAllOpen] = useState(false);
@@ -554,12 +557,19 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
+  const [allUsers, setAllUsers] = useState([]);
 
   const loadHolders = () => {
     if (!stock) return;
     setLoading(true);
-    api.get(`/stocks/${stock.id}/holders`)
-      .then(r => setHolders(r.data))
+    Promise.all([
+      api.get(`/stocks/${stock.id}/holders`),
+      api.get(`/stocks/${stock.id}/investments`),
+    ])
+      .then(([holdersRes, invRes]) => {
+        setHolders(holdersRes.data);
+        setInvestments(invRes.data);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   };
@@ -644,7 +654,10 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     setEditTxn(null);
     setDeleteTxnId(null);
     setTxnPatId(null);
-    api.get(`/stocks/${stock.id}/holders/${h.id}/transactions`)
+    const url = activeGroupId
+      ? `/stocks/${stock.id}/holders/${h.id}/transactions?group_id=${activeGroupId}`
+      : `/stocks/${stock.id}/holders/${h.id}/transactions`;
+    api.get(url)
       .then(r => setTxnHistory(r.data))
       .catch(console.error)
       .finally(() => setTxnLoading(false));
@@ -686,7 +699,11 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const confirmDelete = async () => {
     setDeleting(true);
     try {
-      await api.delete(`/portfolio/${deleteHolder.id}/holding/${stock.id}`);
+      if (deleteHolder.txn_id) {
+        await api.delete(`/stocks/${stock.id}/transactions/${deleteHolder.txn_id}`);
+      } else {
+        await api.delete(`/portfolio/${deleteHolder.id}/holding/${stock.id}`);
+      }
       setDeleteHolder(null);
       loadHolders();
     } catch (err) { alert(err.message); } finally { setDeleting(false); }
@@ -703,6 +720,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     loadHolders();
     loadBrokerage(null);
     loadGroups();
+    api.get('/users').then(r => setAllUsers(r.data.filter(u => u.is_active))).catch(console.error);
   }, [open, stock]);
 
   useEffect(() => {
@@ -717,27 +735,49 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     }
   }, [activeGroupId]);
 
-  const groupHolders = activeGroupId ? holders.filter(h => h.group_id === activeGroupId) : holders;
-  const totalInvested = groupHolders.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
-  const totalValue = groupHolders.reduce((s, h) => s + parseFloat(h.current_value), 0);
-  const allExited = groupHolders.length > 0 && groupHolders.every(h => h.status === 'exited');
-  const totalSoldPnl = groupHolders.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
-  const totalBuyAmount = groupHolders.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0);
+  const groupUserIds = activeGroupId
+    ? [...new Set([
+        ...investments.filter(inv => inv.group_id === activeGroupId).map(inv => inv.id),
+        ...holders.filter(h => h.group_id === activeGroupId).map(h => h.id),
+      ])]
+    : null;
+  const groupHolders = groupUserIds ? holders.filter(h => groupUserIds.includes(h.id)) : holders;
+  // When a transaction tab is active, use per-transaction investment rows for status/P&L
+  const activeInvRows = activeGroupId
+    ? investments.filter(h => h.group_id === activeGroupId)
+    : null;
+  const allExited = activeGroupId
+    ? activeInvRows.length > 0 && activeInvRows.every(h => h.status === 'exited')
+    : groupHolders.length > 0 && groupHolders.every(h => h.status === 'exited');
+  const totalInvested = activeGroupId
+    ? activeInvRows.reduce((s, h) => s + parseFloat(h.invested_amount), 0)
+    : groupHolders.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+  const totalValue = activeGroupId
+    ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0)
+    : groupHolders.reduce((s, h) => s + parseFloat(h.current_value), 0);
+  const totalSoldPnl = activeGroupId
+    ? activeInvRows.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0)
+    : groupHolders.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
+  const totalBuyAmount = activeGroupId
+    ? activeInvRows.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0)
+    : groupHolders.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0);
   const soldPnlPct = totalBuyAmount > 0 ? (totalSoldPnl / totalBuyAmount) * 100 : 0;
   const stockBrokerage = brokerageList.reduce((s, t) => s + parseFloat(t.amount), 0);
   const { totalPAT, totalTax } = (() => {
-    const exitedHolders = groupHolders.filter(h => h.status === 'exited');
-    const totalPnl = exitedHolders.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
-    const totalTxnBrokerage = exitedHolders.reduce((s, h) => s + parseFloat(h.total_sell_brokerage || 0), 0);
+    const exitedRows = activeGroupId
+      ? activeInvRows.filter(h => h.status === 'exited')
+      : groupHolders.filter(h => h.status === 'exited');
+    const totalPnl = exitedRows.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
+    const totalTxnBrokerage = exitedRows.reduce((s, h) => s + parseFloat(h.total_sell_brokerage || 0), 0);
     const netProfit = totalPnl - stockBrokerage - totalTxnBrokerage;
     if (netProfit <= 0) return { totalPAT: 0, totalTax: 0 };
-    const avgDays = exitedHolders.length > 0
-      ? exitedHolders.reduce((s, h) => {
+    const avgDays = exitedRows.length > 0
+      ? exitedRows.reduce((s, h) => {
           const days = h.first_buy_date && h.last_sell_date
             ? Math.floor((new Date(h.last_sell_date) - new Date(h.first_buy_date)) / 86400000)
             : 0;
           return s + days;
-        }, 0) / exitedHolders.length
+        }, 0) / exitedRows.length
       : 0;
     const tax = netProfit * (avgDays > 365 ? 0.125 : 0.20);
     return { totalPAT: netProfit - tax, totalTax: tax };
@@ -761,7 +801,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     return 0;
   };
 
-  const displayed = holders
+  const displayed = investments
     .filter(h => filterStatus === 'all' || h.status === filterStatus)
     .filter(h => filterType === 'all' || h.user_type === filterType)
     .filter(h => !activeGroupId || h.group_id === activeGroupId)
@@ -841,13 +881,13 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     const val = e.target.value;
                     try {
                       const r = await api.put(`/stocks/${stock.id}/groups/${activeGroupId}`, { holder_id: val ? parseInt(val) : null });
-                      setGroups(prev => prev.map(g => g.id === activeGroupId ? { ...g, holder_id: val ? parseInt(val) : null, holder_name: holders.find(h => h.id === parseInt(val))?.name || null } : g));
+                      setGroups(prev => prev.map(g => g.id === activeGroupId ? { ...g, holder_id: val ? parseInt(val) : null, holder_name: allUsers.find(u => u.id === parseInt(val))?.name || null } : g));
                     } catch(err) { alert(err.message); }
                   }}
                   className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-1"
                 >
                   <option value="">— None —</option>
-                  {holders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                  {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.user_type})</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-3 ml-auto flex-wrap">
@@ -883,7 +923,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             <div className={`grid ${allExited ? 'grid-cols-5' : 'grid-cols-3'} gap-3`}>
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Investors</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{groupHolders.length}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{activeGroupId ? activeInvRows.length : groupHolders.length}</p>
                 </div>
                 {allExited ? (
                   <>
@@ -942,7 +982,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 ))}
               </div>
             )}
-            {holders.length === 0 ? (
+            {investments.length === 0 ? (
               <p className="text-center py-8 text-gray-400 dark:text-gray-500">No investors in this stock yet</p>
             ) : displayed.length === 0 ? (
               <p className="text-center py-8 text-gray-400 dark:text-gray-500">No investors match the filter</p>
@@ -955,8 +995,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     <SortTh label="Status" col="status" />
                     <SortTh label="Shares" col="quantity" />
                     <Th>Buy Date</Th>
-                    <SortTh label="Avg Buy Price" col="avg_buy_price" />
-                    <SortTh label="Avg Sell Price" col="avg_sell_price" />
+                    <SortTh label="Buy Price" col="avg_buy_price" />
+                    <Th>Sell Price</Th>
                     <SortTh label="Amount Invested" col="invested_amount" />
                     <SortTh label="Current Value" col="current_value" />
                     <SortTh label="P&L" col="pnl" />
@@ -988,18 +1028,20 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   })()}
                   {displayed.map(h => {
                     const dim = h.status === 'exited' ? 'opacity-60' : '';
+                    const holder = holders.find(hh => hh.id === h.id) || h;
+                    const rowKey = h.txn_id != null ? h.txn_id : h.id;
                     return (
-                    <tr key={h.id} onClick={h.status === 'exited' ? () => setPatHolder(h) : undefined} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${h.status === 'exited' ? 'cursor-pointer' : ''}`}>
+                    <tr key={rowKey} onClick={h.status === 'exited' ? () => setPatHolder(holder) : undefined} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${h.status === 'exited' ? 'cursor-pointer' : ''}`}>
                       <Td>
                         <div className="flex items-center gap-1.5">
                           <div className="flex-shrink-0">
                             <button
-                              onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ top: r.bottom, left: r.left }); setOpenMenuId(openMenuId === h.id ? null : h.id); }}
+                              onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const flip = window.innerHeight - r.bottom < 160; setMenuPos({ top: flip ? r.top - 160 : r.bottom, left: r.left }); setOpenMenuId(openMenuId === rowKey ? null : rowKey); }}
                               className="p-1 text-gray-400 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-600 rounded"
                             >
                               <MoreVertical size={14} />
                             </button>
-                            {openMenuId === h.id && (
+                            {openMenuId === rowKey && (
                               <div
                                 style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 9999 }}
                                 className="w-40 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg shadow-xl dark:shadow-black/60 py-1"
@@ -1007,17 +1049,17 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                                 onClick={e => e.stopPropagation()}
                               >
                                 {h.status === 'active' && (
-                                  <button onClick={() => { setSellHolder(h); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                  <button onClick={() => { setSellHolder(activeGroupId ? { ...holder, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <TrendingDown size={13} /> Sell Shares
                                   </button>
                                 )}
-                                <button onClick={() => { openTxnHistory(h); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                <button onClick={() => { openTxnHistory(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                   <History size={13} /> History
                                 </button>
-                                <button onClick={() => { setEditHolder(h); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                <button onClick={() => { setEditHolder(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                   <Pencil size={13} /> Edit
                                 </button>
-                                <button onClick={() => { setDeleteHolder(h); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                <button onClick={() => { setDeleteHolder(h.txn_id ? { ...holder, txn_id: h.txn_id } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                   <Trash2 size={13} /> Delete
                                 </button>
                               </div>
@@ -1116,8 +1158,18 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const subModals = (
     <>
       <AddInvestmentModal stock={stock} open={addOpen} onClose={() => setAddOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
-      <SellAllModal stock={stock} holders={groupHolders} open={sellAllOpen} onClose={() => setSellAllOpen(false)} onDone={loadHolders} />
-      <SellModal stock={stock} holder={sellHolder} open={!!sellHolder} onClose={() => setSellHolder(null)} onDone={loadHolders} />
+      <SellAllModal stock={stock} holders={activeGroupId
+        ? groupHolders.map(h => {
+            const currentQty = parseFloat(h.quantity);
+            // Use remaining_quantity from investments (buy qty minus already sold for this group)
+            const inv = investments.find(inv => inv.group_id === activeGroupId && inv.id === h.id);
+            if (inv) return { ...h, quantity: Math.min(parseFloat(inv.remaining_quantity), currentQty) };
+            // Old data: t.group_id not set — use unassigned buy transaction remaining
+            const oldInv = investments.find(inv => inv.group_id == null && inv.id === h.id);
+            return { ...h, quantity: oldInv ? Math.min(parseFloat(oldInv.remaining_quantity), currentQty) : currentQty };
+          })
+        : groupHolders} open={sellAllOpen} onClose={() => setSellAllOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
+      <SellModal stock={stock} holder={sellHolder} open={!!sellHolder} onClose={() => setSellHolder(null)} onDone={loadHolders} groupId={activeGroupId} />
       <EditHoldingModal stock={stock} holder={editHolder} open={!!editHolder} onClose={() => setEditHolder(null)} onDone={loadHolders} />
       <Modal open={!!patHolder} onClose={() => { setPatHolder(null); setPatModalTab('pat'); }} title="PAT Breakdown">
         {patHolder && (() => {
@@ -1710,7 +1762,7 @@ export default function StocksPage() {
                       <div className="flex items-center gap-1.5">
                         <div className="flex-shrink-0">
                           <button
-                            onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setStockMenuPos({ top: r.bottom, left: r.left }); setStockMenuId(stockMenuId === s.id ? null : s.id); }}
+                            onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const flip = window.innerHeight - r.bottom < 160; setStockMenuPos({ top: flip ? r.top - 160 : r.bottom, left: r.left }); setStockMenuId(stockMenuId === s.id ? null : s.id); }}
                             className="p-1 text-gray-400 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-600 rounded"
                           >
                             <MoreVertical size={14} />
@@ -1720,6 +1772,7 @@ export default function StocksPage() {
                               style={{ position: 'fixed', top: stockMenuPos.top, left: stockMenuPos.left, zIndex: 9999 }}
                               className="w-44 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg shadow-xl dark:shadow-black/60 py-1"
                               onMouseLeave={() => setStockMenuId(null)}
+                              onClick={e => e.stopPropagation()}
                             >
                               <button onClick={() => { openEdit(s); setStockMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                 <Edit2 size={13} /> Edit

@@ -76,7 +76,7 @@ export default function ClientDashboard() {
                     <p className="text-xs text-gray-500">{h.stock_name}</p>
                   </div>
                 </Td>
-                <Td>{fmt.number(h.quantity, 4)}</Td>
+                <Td>{fmt.number(h.quantity, 2)}</Td>
                 <Td>{fmt.currency(h.avg_buy_price)}</Td>
                 <Td>{fmt.currency(h.current_price)}</Td>
                 <Td className="font-medium">{fmt.currency(h.current_value)}</Td>

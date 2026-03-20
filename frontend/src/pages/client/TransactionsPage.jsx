@@ -86,7 +86,7 @@ export default function TransactionsPage() {
                     <p className="text-xs text-gray-400">{t.user_type}</p>
                   </Td>
                 )}
-                <Td>{fmt.number(t.quantity, 4)}</Td>
+                <Td>{fmt.number(t.quantity, 2)}</Td>
                 <Td>{fmt.currency(t.price)}</Td>
                 <Td className="font-medium">{fmt.currency(t.total)}</Td>
                 <Td className="text-gray-500">{t.executed_by_name || '—'}</Td>

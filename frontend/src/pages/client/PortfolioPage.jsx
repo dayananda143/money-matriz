@@ -103,7 +103,7 @@ function HoldingsDetail({ userId }) {
                   <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                   <Td>{h.stock_name}</Td>
                   <Td><span className="badge-blue">{h.sector || '—'}</span></Td>
-                  <Td>{fmt.number(h.quantity, 4)}</Td>
+                  <Td>{fmt.number(h.quantity, 2)}</Td>
                   <Td>{fmt.currency(h.avg_buy_price)}</Td>
                   <Td>{fmt.currency(h.current_price)}</Td>
                   <Td className="font-medium">{fmt.currency(h.current_value)}</Td>
@@ -129,7 +129,7 @@ function HoldingsDetail({ userId }) {
                     <Td><span className="font-bold text-gray-500 dark:text-gray-400">{h.symbol}</span></Td>
                     <Td>{h.stock_name}</Td>
                     <Td><span className="badge-blue">{h.sector || '—'}</span></Td>
-                    <Td>{fmt.number(h.total_bought_quantity, 4)}</Td>
+                    <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>
                     <Td>{fmt.currency(h.avg_buy_price)}</Td>
                     <Td>{fmt.currency(h.total_buy_amount)}</Td>
                     <Td><span className={pnlColor(h.realized_pnl)}>{pnlSign(h.realized_pnl)}{fmt.currency(h.realized_pnl)}</span></Td>
