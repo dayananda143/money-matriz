@@ -5,6 +5,7 @@ import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
+import Modal from '../../components/ui/Modal';
 
 const COLORS = ['#22c55e','#3b82f6','#a855f7','#f97316','#ef4444','#eab308','#06b6d4','#ec4899'];
 
@@ -12,6 +13,8 @@ function HoldingsDetail({ userId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
+  const [patHolding, setPatHolding] = useState(null);
+  const [patTab, setPatTab] = useState('pat');
 
   useEffect(() => {
     setLoading(true);
@@ -122,7 +125,7 @@ function HoldingsDetail({ userId }) {
                 const buyAmt = parseFloat(h.total_buy_amount);
                 const pct = buyAmt > 0 ? (parseFloat(h.realized_pnl) / buyAmt * 100) : 0;
                 return (
-                  <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <tr key={h.id} onClick={() => { setPatHolding(h); setPatTab('pat'); }} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
                     <Td><span className="font-bold text-gray-500 dark:text-gray-400">{h.symbol}</span></Td>
                     <Td>{h.stock_name}</Td>
                     <Td><span className="badge-blue">{h.sector || '—'}</span></Td>
@@ -138,6 +141,113 @@ function HoldingsDetail({ userId }) {
           </Table>
         )}
       </div>
+
+      <Modal open={!!patHolding} onClose={() => setPatHolding(null)} title={patHolding ? `${patHolding.symbol} — ${patHolding.stock_name}` : ''}>
+        {patHolding && (() => {
+          const pnl = parseFloat(patHolding.realized_pnl || 0);
+          const brokerage = parseFloat(patHolding.total_sell_brokerage || 0);
+          const netProfit = pnl - brokerage;
+          const days = patHolding.first_buy_date
+            ? Math.floor(((patHolding.last_sell_date ? new Date(patHolding.last_sell_date) : new Date()) - new Date(patHolding.first_buy_date)) / 86400000)
+            : 0;
+          const taxRate = days > 365 ? 0.125 : 0.20;
+          const tax = netProfit > 0 ? netProfit * taxRate : 0;
+          const pat = netProfit > 0 ? netProfit - tax : 0;
+          const shareholderTaking = pat * 0.30;
+          const companyTaking = pat * 0.70;
+          const investedAmount = parseFloat(patHolding.total_buy_amount || 0);
+          const settlement = pnl >= 0
+            ? investedAmount + shareholderTaking
+            : investedAmount + pnl - brokerage;
+
+          return (
+            <div className="space-y-4">
+              <div className="flex border-b border-gray-200 dark:border-gray-700">
+                {['pat', 'settlement'].map(t => (
+                  <button key={t} onClick={() => setPatTab(t)}
+                    className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${patTab === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                    {t === 'pat' ? 'PAT' : 'Settlement'}
+                  </button>
+                ))}
+              </div>
+
+              {patTab === 'pat' ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                    <span className="text-sm text-gray-500">Realized P/L</span>
+                    <span className={`font-medium ${pnlColor(pnl)}`}>{pnlSign(pnl)}{fmt.currency(pnl)}</span>
+                  </div>
+                  {brokerage > 0 && (
+                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                      <span className="text-sm text-gray-500">Brokerage</span>
+                      <span className="font-medium text-red-500">−{fmt.currency(brokerage)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                    <span className="text-sm text-gray-500">Tax ({days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span>
+                    <span className="font-medium text-red-500">−{fmt.currency(tax)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">PAT</span>
+                    <span className={`font-bold ${pnlColor(pat)}`}>{fmt.currency(pat)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Your Share <span className="text-xs text-gray-400">(30%)</span></span>
+                    <span className="font-semibold text-blue-600">{fmt.currency(shareholderTaking)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Company Share <span className="text-xs text-gray-400">(70%)</span></span>
+                    <span className="font-semibold text-purple-600">{fmt.currency(companyTaking)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 pt-1">{days} days held · {days > 365 ? 'Long-term' : 'Short-term'} capital gain</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pnl >= 0 ? (
+                    <>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">Invested Amount</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{fmt.currency(investedAmount)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Your Share <span className="text-xs text-gray-400">(30% of PAT)</span></span>
+                        <span className="font-semibold text-blue-600">+{fmt.currency(shareholderTaking)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-t-2 border-gray-200 dark:border-gray-600">
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">Total Settlement</span>
+                        <span className="text-xl font-bold text-green-600">{fmt.currency(settlement)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">Invested Amount</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{fmt.currency(investedAmount)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">P/L (Loss)</span>
+                        <span className="font-medium text-red-500">{fmt.currency(pnl)}</span>
+                      </div>
+                      {brokerage > 0 && (
+                        <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                          <span className="text-sm text-gray-500">Brokerage</span>
+                          <span className="font-medium text-red-500">−{fmt.currency(brokerage)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center py-2 border-t-2 border-gray-200 dark:border-gray-600">
+                        <span className="text-sm font-bold text-gray-900 dark:text-white">Total Settlement</span>
+                        <span className={`text-xl font-bold ${pnlColor(settlement)}`}>{fmt.currency(settlement)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              <button onClick={() => setPatHolding(null)} className="btn-secondary w-full">Close</button>
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 }

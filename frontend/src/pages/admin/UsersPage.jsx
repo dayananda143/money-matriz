@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -120,8 +120,10 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('active');
   const [sort, setSort] = useState({ col: 'name', dir: 'asc' });
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -147,12 +149,16 @@ export default function UsersPage() {
 
   useEffect(load, []);
 
-  const filtered = users.filter(u => {
+  const preStatusFiltered = users.filter(u => {
     const matchType = typeFilter === 'all' || u.user_type === typeFilter;
     const matchRole = roleFilter === 'all' || u.role === roleFilter;
+    const matchSearch = !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+    return matchType && matchRole && matchSearch;
+  });
+
+  const filtered = preStatusFiltered.filter(u => {
     const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? u.is_active : !u.is_active);
-    const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
-    return matchType && matchRole && matchStatus && matchSearch;
+    return matchStatus;
   });
 
   const toggleSort = (col) => setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
@@ -161,6 +167,9 @@ export default function UsersPage() {
     const cmp = typeof v1 === 'boolean' ? (v1 === v2 ? 0 : v1 ? -1 : 1) : String(v1).localeCompare(String(v2), undefined, { numeric: true });
     return sort.dir === 'asc' ? cmp : -cmp;
   });
+
+  const totalPages = Math.ceil(sorted.length / limit);
+  const paged = sorted.slice((page - 1) * limit, page * limit);
   const SortIcon = ({ col }) => {
     if (sort.col !== col) return <ChevronsUpDown size={13} className="ml-1 text-gray-400 inline" />;
     return sort.dir === 'asc' ? <ChevronUp size={13} className="ml-1 text-brand-600 inline" /> : <ChevronDown size={13} className="ml-1 text-brand-600 inline" />;
@@ -217,45 +226,54 @@ export default function UsersPage() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pl-9" placeholder="Search users..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500 font-medium">Type:</span>
-            {['all', ...userTypes].map(t => (
-              <button key={t} onClick={() => setTypeFilter(t)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${typeFilter === t ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-                {t.replace(/_/g, ' ')}
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-wrap gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500 font-medium">Type:</span>
+          {['all', ...userTypes].map(t => (
+            <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${typeFilter === t ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
+              {t.replace(/_/g, ' ')}
+            </button>
+          ))}
         </div>
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500 font-medium">Role:</span>
-            {['all', ...roles].map(r => (
-              <button key={r} onClick={() => setRoleFilter(r)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${roleFilter === r ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-                {r.replace(/_/g, ' ')}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 font-medium">Status:</span>
-            {['all', 'active', 'inactive'].map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${statusFilter === s ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-                {s}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500 font-medium">Role:</span>
+          {['all', ...roles].map(r => (
+            <button key={r} onClick={() => { setRoleFilter(r); setPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${roleFilter === r ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
+              {r.replace(/_/g, ' ')}
+            </button>
+          ))}
         </div>
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
+          <div className="flex">
+            {[{ key: 'all', label: 'All', count: preStatusFiltered.length }, { key: 'active', label: 'Active', count: preStatusFiltered.filter(u => u.is_active).length }, { key: 'inactive', label: 'Inactive', count: preStatusFiltered.filter(u => !u.is_active).length }].map(tab => (
+              <button key={tab.key} onClick={() => { setStatusFilter(tab.key); setPage(1); }}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${statusFilter === tab.key ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                {tab.label}
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${statusFilter === tab.key ? 'bg-brand-100 dark:bg-brand-900/30 text-brand-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{tab.count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {[5, 10, 15, 20, 25].map(n => (
+                <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                  className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input className="pl-8 pr-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44" placeholder="Search users…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+            </div>
+          </div>
+        </div>
         <Table>
           <thead>
             <tr>
@@ -272,7 +290,7 @@ export default function UsersPage() {
           </thead>
           <tbody>
             {!sorted.length && <EmptyRow cols={9} message="No users found" />}
-            {sorted.map(u => (
+            {paged.map(u => (
               <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td className="font-medium text-gray-900 dark:text-white">{u.name}</Td>
                 <Td className="text-gray-500">{u.email}</Td>
@@ -300,6 +318,43 @@ export default function UsersPage() {
             ))}
           </tbody>
         </Table>
+        {totalPages > 1 && (
+          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+            {(() => {
+              const range = [];
+              for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+              }
+              const withEllipsis = [];
+              let prev = null;
+              for (const p of range) {
+                if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
+                withEllipsis.push(p);
+                prev = p;
+              }
+              return (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronLeft size={14} />
+                  </button>
+                  {withEllipsis.map((p, i) =>
+                    typeof p === 'string'
+                      ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                      : <button key={p} onClick={() => setPage(p)}
+                          className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                          {p}
+                        </button>
+                  )}
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       <Modal open={modal === 'create'} onClose={() => setModal(null)} title="Create User">

@@ -93,10 +93,46 @@ async function migrate() {
     )
   `);
 
+  // Add brokerage to stocks if not exists
+  await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS brokerage DECIMAL(12,4) DEFAULT 0`);
+
+  // Per-group settled flags
+  await query(`ALTER TABLE stock_groups ADD COLUMN IF NOT EXISTS investment_settled BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE stock_groups ADD COLUMN IF NOT EXISTS pnl_settled BOOLEAN DEFAULT false`);
+
+  // Brokerage transactions (multiple per stock)
+  await query(`
+    CREATE TABLE IF NOT EXISTS brokerage_transactions (
+      id SERIAL PRIMARY KEY,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE CASCADE,
+      label VARCHAR(100),
+      amount DECIMAL(12,4) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Stock groups (transaction groups per stock)
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_groups (
+      id SERIAL PRIMARY KEY,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE CASCADE,
+      label VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await query(`ALTER TABLE holdings ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES stock_groups(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE brokerage_transactions ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES stock_groups(id) ON DELETE CASCADE`);
+
   // Add holder_user_id to stocks if not exists
   await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS holder_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS investment_settled BOOLEAN DEFAULT false`);
   await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS pnl_settled BOOLEAN DEFAULT false`);
+
+  // Brokerage per sell transaction
+  await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS brokerage DECIMAL(12,4) DEFAULT 0`);
+
+  // Stockholder assigned to each transaction group
+  await query(`ALTER TABLE stock_groups ADD COLUMN IF NOT EXISTS holder_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
 
   // Seed super admin if not exists
   const { rows } = await query(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Users, TrendingUp, Wallet, BarChart2, ArrowLeftRight, Search } from 'lucide-react';
+import { Users, TrendingUp, Wallet, BarChart2, ArrowLeftRight, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../api';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import StatCard from '../../components/ui/StatCard';
@@ -12,6 +12,8 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
 
   useEffect(() => {
     Promise.all([
@@ -33,9 +35,12 @@ export default function OverviewPage() {
 
   const filtered = users.filter(u => {
     const matchType = typeFilter === 'all' || u.user_type === typeFilter;
-    const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
     return matchType && matchSearch;
   });
+
+  const totalPages = Math.ceil(filtered.length / limit);
+  const paged = filtered.slice((page - 1) * limit, page * limit);
 
   return (
     <div className="space-y-6">
@@ -72,22 +77,32 @@ export default function OverviewPage() {
           <p className="text-sm text-gray-500">{filtered.length} of {users.length}</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input className="input pl-9" placeholder="Search by name or email..." value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-          <div className="flex gap-2">
-            {['all', 'client', 'shareholder'].map(t => (
-              <button key={t} onClick={() => setTypeFilter(t)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${typeFilter === t ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="card">
+          <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
+            <div className="flex">
+              {['all', 'client', 'shareholder'].map(t => (
+                <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors capitalize ${typeFilter === t ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+                {[5, 10, 15, 20, 25].map(n => (
+                  <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                    className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input className="pl-8 pr-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44" placeholder="Search users…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+              </div>
+            </div>
+          </div>
           <Table>
             <thead>
               <tr>
@@ -104,7 +119,7 @@ export default function OverviewPage() {
             </thead>
             <tbody>
               {!filtered.length && <EmptyRow cols={9} message="No users found" />}
-              {filtered.map(u => (
+              {paged.map(u => (
                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <Td>
                     <p className="font-medium text-gray-900 dark:text-white">{u.name}</p>
@@ -122,6 +137,43 @@ export default function OverviewPage() {
               ))}
             </tbody>
           </Table>
+          {totalPages > 1 && (
+            <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+              {(() => {
+                const range = [];
+                for (let i = 1; i <= totalPages; i++) {
+                  if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+                }
+                const withEllipsis = [];
+                let prev = null;
+                for (const p of range) {
+                  if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
+                  withEllipsis.push(p);
+                  prev = p;
+                }
+                return (
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                      <ChevronLeft size={14} />
+                    </button>
+                    {withEllipsis.map((p, i) =>
+                      typeof p === 'string'
+                        ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                        : <button key={p} onClick={() => setPage(p)}
+                            className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                            {p}
+                          </button>
+                    )}
+                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -32,6 +32,7 @@ import CompanyDashboardPage from './pages/company/CompanyDashboardPage';
 import OverviewPage from './pages/admin/OverviewPage';
 import UsersPage from './pages/admin/UsersPage';
 import StocksPage from './pages/admin/StocksPage';
+import StockDetailPage from './pages/admin/StockDetailPage';
 import RelationshipsPage from './pages/admin/RelationshipsPage';
 import SettingsPage from './pages/admin/SettingsPage';
 
@@ -76,6 +77,7 @@ function ProtectedRoutes() {
         {/* Admin routes */}
         {isAdmin && <Route path="/admin/users" element={<UsersPage />} />}
         {isAdmin && <Route path="/admin/stocks" element={<StocksPage />} />}
+        {isAdmin && <Route path="/admin/stocks/:id" element={<StockDetailPage />} />}
         {isAdmin && <Route path="/admin/relationships" element={<RelationshipsPage />} />}
         {isAdmin && <Route path="/admin/overview" element={<OverviewPage />} />}
         {user.role === 'super_admin' && <Route path="/admin/settings" element={<SettingsPage />} />}

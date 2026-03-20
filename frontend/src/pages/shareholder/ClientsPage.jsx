@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -14,6 +14,8 @@ export default function ClientsPage() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
 
   useEffect(() => {
     const url = isAdmin ? '/relationships/all-clients' : '/relationships/shareholder/me';
@@ -24,9 +26,13 @@ export default function ClientsPage() {
   }, []);
 
   const filtered = clients.filter(c =>
+    !search.trim() ||
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.email.toLowerCase().includes(search.toLowerCase())
   );
+
+  const totalPages = Math.ceil(filtered.length / limit);
+  const paged = filtered.slice((page - 1) * limit, page * limit);
 
   if (loading) return (
     <div className="space-y-6">
@@ -47,17 +53,32 @@ export default function ClientsPage() {
         </p>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          className="input pl-9"
-          placeholder="Search clients..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
       <div className="card">
+        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
+          <div className="py-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {filtered.length} client{filtered.length !== 1 ? 's' : ''}
+          </div>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {[5, 10, 15, 20, 25].map(n => (
+                <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                  className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                className="pl-8 pr-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
+                placeholder="Search clients…"
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+              />
+            </div>
+          </div>
+        </div>
         <Table>
           <thead>
             <tr>
@@ -73,7 +94,7 @@ export default function ClientsPage() {
           </thead>
           <tbody>
             {!filtered.length && <EmptyRow cols={isAdmin ? 8 : 7} message="No clients found" />}
-            {filtered.map(c => (
+            {paged.map(c => (
               <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td>
                   <Link to={`/clients/${c.id}`} className="font-medium text-brand-600 hover:text-brand-700">
@@ -91,6 +112,43 @@ export default function ClientsPage() {
             ))}
           </tbody>
         </Table>
+        {totalPages > 1 && (
+          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+            {(() => {
+              const range = [];
+              for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+              }
+              const withEllipsis = [];
+              let prev = null;
+              for (const p of range) {
+                if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
+                withEllipsis.push(p);
+                prev = p;
+              }
+              return (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronLeft size={14} />
+                  </button>
+                  {withEllipsis.map((p, i) =>
+                    typeof p === 'string'
+                      ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                      : <button key={p} onClick={() => setPage(p)}
+                          className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                          {p}
+                        </button>
+                  )}
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );

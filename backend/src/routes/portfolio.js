@@ -44,7 +44,15 @@ router.get('/:userId/summary', authenticate, async (req, res) => {
                COALESCE((
                  SELECT ROUND(SUM(t.total)::numeric, 2) FROM transactions t
                  WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy'
-               ), 0) as total_buy_amount
+               ), 0) as total_buy_amount,
+               (SELECT MIN(t.executed_at) FROM transactions t
+                WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy') as first_buy_date,
+               (SELECT MAX(t.executed_at) FROM transactions t
+                WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell') as last_sell_date,
+               COALESCE((
+                 SELECT SUM(COALESCE(t.brokerage, 0)) FROM transactions t
+                 WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell'
+               ), 0) as total_sell_brokerage
         FROM holdings h
         JOIN stocks s ON s.id = h.stock_id
         WHERE h.user_id = $1
@@ -191,10 +199,11 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
 
     // Insert transaction
     const txExecAt = executed_at || new Date().toISOString();
+    const brokerage = type === 'sell' ? parseFloat(req.body.brokerage || 0) : 0;
     const { rows: txRows } = await query(
-      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [userId, stock_id, type, quantity, price, total, notes || null, txExecAt, req.user.id]
+      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [userId, stock_id, type, quantity, price, total, notes || null, txExecAt, req.user.id, brokerage]
     );
 
     // Update holdings
@@ -236,19 +245,19 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
 router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
   try {
     if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    const { quantity, avg_buy_price, buy_date } = req.body;
+    const { quantity, avg_buy_price, buy_date, brokerage } = req.body;
     if (quantity === undefined || avg_buy_price === undefined) {
       return res.status(400).json({ error: 'quantity and avg_buy_price required' });
     }
     const { rows } = await query(`
-      INSERT INTO holdings (user_id, stock_id, quantity, avg_buy_price)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO holdings (user_id, stock_id, quantity, avg_buy_price, brokerage)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (user_id, stock_id) DO UPDATE SET
-        quantity = $3, avg_buy_price = $4, updated_at = NOW()
+        quantity = $3, avg_buy_price = $4, brokerage = $5, updated_at = NOW()
       RETURNING *
-    `, [req.params.userId, req.params.stockId, quantity, avg_buy_price]);
+    `, [req.params.userId, req.params.stockId, quantity, avg_buy_price, brokerage ?? 0]);
     if (buy_date) {
-      await query(`
+      const updateRes = await query(`
         UPDATE transactions SET executed_at = $1
         WHERE id = (
           SELECT id FROM transactions
@@ -256,6 +265,15 @@ router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
           ORDER BY executed_at ASC LIMIT 1
         )
       `, [buy_date, req.params.userId, req.params.stockId]);
+      // No buy transaction exists yet — create one so first_buy_date is populated
+      if (updateRes.rowCount === 0) {
+        const total = parseFloat(quantity) * parseFloat(avg_buy_price);
+        await query(
+          `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, executed_at, created_by)
+           VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7)`,
+          [req.params.userId, req.params.stockId, quantity, avg_buy_price, total, buy_date, req.user.id]
+        );
+      }
     }
     res.json(rows[0]);
   } catch (err) {
