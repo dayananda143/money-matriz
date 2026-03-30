@@ -6,14 +6,8 @@ const { authenticate } = require('../middleware/auth');
 async function canAccess(viewer, targetId) {
   if (viewer.role === 'super_admin' || viewer.role === 'admin') return true;
   if (viewer.id === parseInt(targetId)) return true;
-  // Shareholder can view their clients
-  if (viewer.user_type === 'shareholder') {
-    const { rows } = await query(
-      'SELECT id FROM relationships WHERE shareholder_id = $1 AND client_id = $2',
-      [viewer.id, targetId]
-    );
-    return rows.length > 0;
-  }
+  // Any shareholder can view any client
+  if (viewer.user_type === 'shareholder') return true;
   return false;
 }
 
@@ -23,16 +17,16 @@ router.get('/:userId/summary', authenticate, async (req, res) => {
     const userId = req.params.userId === 'me' ? req.user.id : req.params.userId;
     if (!await canAccess(req.user, userId)) return res.status(403).json({ error: 'Forbidden' });
 
-    const [holdingsRes, balanceRes, txRes] = await Promise.all([
+    const [holdingsRes, balanceRes, txRes, sipRes, fundRes] = await Promise.all([
       query(`
         SELECT h.id, h.quantity, h.avg_buy_price,
-               s.id as stock_id, s.symbol, s.name as stock_name, s.current_price, s.previous_close, s.sector,
+               s.id as stock_id, s.symbol, s.name as stock_name, s.current_price, s.previous_close, s.sector, s.market_cap_category,
                (h.quantity * s.current_price) as current_value,
                (h.quantity * s.current_price - h.quantity * h.avg_buy_price) as unrealized_pnl,
                CASE WHEN h.avg_buy_price > 0
                     THEN ((s.current_price - h.avg_buy_price) / h.avg_buy_price * 100)
                     ELSE 0 END as pnl_percent,
-               CASE WHEN h.quantity > 0 THEN 'active' ELSE 'exited' END as status,
+               CASE WHEN ROUND(h.quantity::numeric, 2) > 0 THEN 'active' ELSE 'exited' END as status,
                COALESCE((
                  SELECT SUM(t.quantity) FROM transactions t
                  WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy'
@@ -52,32 +46,60 @@ router.get('/:userId/summary', authenticate, async (req, res) => {
                COALESCE((
                  SELECT SUM(COALESCE(t.brokerage, 0)) FROM transactions t
                  WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell'
-               ), 0) as total_sell_brokerage
+               ), 0) as total_sell_brokerage,
+               COALESCE((
+                 SELECT ROUND(SUM(t.total)::numeric, 2) FROM transactions t
+                 WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell'
+               ), 0) as total_sell_amount,
+               COALESCE((
+                 SELECT CASE WHEN SUM(t.quantity) > 0
+                   THEN ROUND(SUM(t.total)::numeric / SUM(t.quantity)::numeric, 2)
+                   ELSE 0 END
+                 FROM transactions t
+                 WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell'
+               ), 0) as avg_sell_price
         FROM holdings h
         JOIN stocks s ON s.id = h.stock_id
         WHERE h.user_id = $1
         ORDER BY h.quantity DESC, current_value DESC
       `, [userId]),
-      query('SELECT cash_balance FROM balances WHERE user_id = $1', [userId]),
+      query('SELECT user_type FROM users WHERE id = $1', [userId]),
       query(`
         SELECT COALESCE(SUM(CASE WHEN type = 'buy' THEN total ELSE -total END), 0) as invested
         FROM transactions WHERE user_id = $1
+      `, [userId]),
+      query(`
+        SELECT COALESCE(SUM(CASE WHEN sip_type = 'withdraw' THEN -amount ELSE amount END), 0) as sip_net_invested
+        FROM sip_plans WHERE shareholder_id = $1
+      `, [userId]),
+      query(`
+        SELECT COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE -amount END), 0) as net_deposited
+        FROM fund_movements WHERE user_id = $1
       `, [userId])
     ]);
 
     const holdings = holdingsRes.rows;
-    const cash = balanceRes.rows[0]?.cash_balance || 0;
+    const userType = balanceRes.rows[0]?.user_type;
     const portfolioValue = holdings.reduce((sum, h) => sum + parseFloat(h.current_value), 0);
     const invested = parseFloat(txRes.rows[0]?.invested || 0);
-    const totalValue = portfolioValue + parseFloat(cash);
+    const sipNetInvested = parseFloat(sipRes.rows[0]?.sip_net_invested || 0);
+    const netDeposited = parseFloat(fundRes.rows[0]?.net_deposited || 0);
+    const activeInvested = holdings
+      .filter(h => parseFloat(h.quantity) > 0)
+      .reduce((sum, h) => sum + parseFloat(h.quantity) * parseFloat(h.avg_buy_price), 0);
+    const cashBalance = userType === 'shareholder'
+      ? sipNetInvested - activeInvested
+      : netDeposited - activeInvested;
+    const totalValue = portfolioValue + cashBalance;
 
     res.json({
       holdings,
-      cash_balance: parseFloat(cash),
+      cash_balance: cashBalance,
       portfolio_value: portfolioValue,
       total_value: totalValue,
       invested,
       total_pnl: portfolioValue - invested,
+      sip_net_invested: sipNetInvested,
     });
   } catch (err) {
     console.error(err);
@@ -176,7 +198,7 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
     const total = req.body.total != null ? parseFloat(req.body.total) : parseFloat(quantity) * parseFloat(price);
 
     // Get stock
-    const stockRes = await query('SELECT * FROM stocks WHERE id = $1 AND is_active = true', [stock_id]);
+    const stockRes = await query('SELECT * FROM stocks WHERE id = $1', [stock_id]);
     if (!stockRes.rows[0]) return res.status(404).json({ error: 'Stock not found' });
 
     // Get or create balance
@@ -228,7 +250,7 @@ router.post('/:userId/trade', authenticate, async (req, res) => {
 
       // If all holders of this stock have exited (quantity = 0), mark stock as inactive
       const remainingRes = await query(
-        'SELECT COUNT(*) FROM holdings WHERE stock_id = $1 AND quantity > 0',
+        'SELECT COUNT(*) FROM holdings WHERE stock_id = $1 AND ROUND(quantity::numeric, 2) > 0',
         [stock_id]
       );
       if (parseInt(remainingRes.rows[0].count) === 0) {
@@ -327,6 +349,55 @@ router.post('/:userId/funds', authenticate, async (req, res) => {
     await query('UPDATE balances SET cash_balance = cash_balance + $1, updated_at = NOW() WHERE user_id = $2', [delta, userId]);
 
     res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT edit a fund movement
+router.put('/:userId/funds/:fundId', authenticate, async (req, res) => {
+  try {
+    const userId = req.params.userId === 'me' ? req.user.id : req.params.userId;
+    if (parseInt(userId) !== req.user.id) {
+      if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { type, amount, notes, executed_at } = req.body;
+    // Get old record to reverse balance
+    const { rows: [old] } = await query('SELECT * FROM fund_movements WHERE id = $1 AND user_id = $2', [req.params.fundId, userId]);
+    if (!old) return res.status(404).json({ error: 'Fund movement not found' });
+
+    const oldDelta = old.type === 'deposit' ? -parseFloat(old.amount) : parseFloat(old.amount);
+    const newDelta = (type || old.type) === 'deposit' ? parseFloat(amount || old.amount) : -parseFloat(amount || old.amount);
+
+    const { rows } = await query(
+      `UPDATE fund_movements SET type = COALESCE($1, type), amount = COALESCE($2::numeric, amount),
+       notes = COALESCE($3, notes), executed_at = COALESCE($4::timestamptz, executed_at)
+       WHERE id = $5 AND user_id = $6 RETURNING *`,
+      [type || null, amount || null, notes ?? null, executed_at || null, req.params.fundId, userId]
+    );
+    await query('UPDATE balances SET cash_balance = cash_balance + $1 + $2, updated_at = NOW() WHERE user_id = $3', [oldDelta, newDelta, userId]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// DELETE a fund movement
+router.delete('/:userId/funds/:fundId', authenticate, async (req, res) => {
+  try {
+    const userId = req.params.userId === 'me' ? req.user.id : req.params.userId;
+    if (parseInt(userId) !== req.user.id) {
+      if (!['admin', 'super_admin'].includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { rows: [fund] } = await query('SELECT * FROM fund_movements WHERE id = $1 AND user_id = $2', [req.params.fundId, userId]);
+    if (!fund) return res.status(404).json({ error: 'Fund movement not found' });
+
+    await query('DELETE FROM fund_movements WHERE id = $1', [req.params.fundId]);
+    const delta = fund.type === 'deposit' ? -parseFloat(fund.amount) : parseFloat(fund.amount);
+    await query('UPDATE balances SET cash_balance = cash_balance + $1, updated_at = NOW() WHERE user_id = $2', [delta, userId]);
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

@@ -15,6 +15,7 @@ import FundsPage from './pages/client/FundsPage';
 import ShareholderDashboard from './pages/shareholder/DashboardPage';
 import ClientsPage from './pages/shareholder/ClientsPage';
 import ClientDetailPage from './pages/shareholder/ClientDetailPage';
+import DematAccountPage from './pages/shareholder/DematAccountPage';
 
 // Company pages
 import CompanyPage from './pages/company/CompanyPage';
@@ -37,8 +38,11 @@ import UsersPage from './pages/admin/UsersPage';
 import StocksPage from './pages/admin/StocksPage';
 import StockDetailPage from './pages/admin/StockDetailPage';
 import RelationshipsPage from './pages/admin/RelationshipsPage';
+import ClientDashboardPage from './pages/admin/ClientDashboardPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import BrokerageAccountsPage from './pages/admin/BrokerageAccountsPage';
+import SIPPage, { SIPTilesPage } from './pages/admin/SIPPage';
+import AllClientsPage from './pages/admin/AllClientsPage';
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth();
@@ -48,12 +52,13 @@ function ProtectedRoutes() {
 
   const isShareholder = user.user_type === 'shareholder';
   const isAdmin = user.role === 'admin' || user.role === 'super_admin';
+  const isSuperAdmin = user.role === 'super_admin';
 
   return (
     <Layout>
       <Routes>
         {/* Dashboard — role-based */}
-        <Route path="/dashboard" element={isAdmin ? <OverviewPage /> : isShareholder ? <ShareholderDashboard /> : <ClientDashboard />} />
+        <Route path="/dashboard" element={isShareholder ? <ShareholderDashboard /> : <ClientDashboard />} />
 
         {/* Portfolio & Transactions (both types) */}
         <Route path="/portfolio" element={<PortfolioPage />} />
@@ -63,9 +68,16 @@ function ProtectedRoutes() {
         {/* Ideas — shareholders + admins */}
         {(isShareholder || isAdmin) && <Route path="/ideas" element={<IdeasPage />} />}
 
-        {/* Shareholder + Admin: client management */}
+        {/* Demat account — any user with personal holdings */}
+        <Route path="/demat" element={<DematAccountPage />} />
+
+        {/* Shareholder: my clients */}
+        {(isShareholder || isAdmin) && <Route path="/clients/dashboard" element={<ClientDashboardPage />} />}
         {(isShareholder || isAdmin) && <Route path="/clients" element={<ClientsPage />} />}
         {(isShareholder || isAdmin) && <Route path="/clients/:id" element={<ClientDetailPage />} />}
+
+        {/* Admin: all clients */}
+        {isAdmin && <Route path="/admin/clients" element={<AllClientsPage />} />}
 
         {/* Company dashboard — shareholders + admins */}
         {(isAdmin || isShareholder) && <Route path="/company/dashboard" element={<CompanyDashboardPage />} />}
@@ -86,6 +98,9 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/admin/stocks" element={<StocksPage />} />}
         {isAdmin && <Route path="/admin/stocks/:id" element={<StockDetailPage />} />}
         {isAdmin && <Route path="/admin/brokerage-accounts" element={<BrokerageAccountsPage />} />}
+        {isAdmin && <Route path="/sip" element={<SIPTilesPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/sip/:shareholderId" element={<SIPPage />} />}
+        {isShareholder && !isAdmin && <Route path="/sip" element={<SIPPage />} />}
         {isAdmin && <Route path="/admin/relationships" element={<RelationshipsPage />} />}
         {isAdmin && <Route path="/admin/overview" element={<OverviewPage />} />}
         {user.role === 'super_admin' && <Route path="/admin/settings" element={<SettingsPage />} />}

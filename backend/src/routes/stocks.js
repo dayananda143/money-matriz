@@ -6,10 +6,20 @@ const YahooFinance = require('yahoo-finance2').default;
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 async function fetchYahooPrice(symbol) {
-  const suffixes = ['.NS', '.BO', ''];
-  for (const suffix of suffixes) {
+  let base = symbol.toUpperCase().trim();
+
+  // Normalise BSE prefix variants: BOM:530951 or BSE:530951 → 530951.BO
+  const bseMatch = base.match(/^(?:BOM|BSE):(.+)$/);
+  if (bseMatch) base = bseMatch[1];
+
+  // Build candidate symbols — BSE first if it looks like a numeric code
+  const isNumeric = /^\d+$/.test(base);
+  const candidates = isNumeric
+    ? [base + '.BO', base + '.NS', base]
+    : [base + '.NS', base + '.BO', base];
+
+  for (const sym of candidates) {
     try {
-      const sym = symbol.toUpperCase() + suffix;
       const q = await yf.quote(sym, {}, { validateResult: false });
       if (q?.regularMarketPrice) {
         let sector = null;
@@ -48,7 +58,11 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
         (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'sell') AS last_sell_date,
         u.id AS holder_id, u.name AS holder_name, u.email AS holder_email, u.user_type AS holder_user_type,
         (SELECT CASE WHEN COUNT(DISTINCT h.avg_buy_price) = 1 THEN MIN(h.avg_buy_price) ELSE NULL END
-         FROM holdings h WHERE h.stock_id = s.id) AS common_buy_price
+         FROM holdings h WHERE h.stock_id = s.id) AS common_buy_price,
+        EXISTS (
+          SELECT 1 FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy'
+          AND (t.investment_settled = false OR t.pnl_settled = false)
+        ) AS has_active_investors
       FROM stocks s
       LEFT JOIN users u ON u.id = s.holder_user_id
       ORDER BY s.symbol`);
@@ -58,13 +72,44 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
   }
 });
 
+// GET my own demat stockholdings (stocks where I am the holder_id in stock_groups)
+router.get('/my-demat', authenticate, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT
+        s.id AS stock_id, s.symbol, s.name AS stock_name, s.sector, s.current_price, s.is_active,
+        g.id AS group_id, g.label AS group_label,
+        COALESCE(BOOL_AND(t.investment_settled) FILTER (WHERE t.type = 'buy'), false) AS investment_settled,
+        COALESCE(BOOL_AND(t.pnl_settled) FILTER (WHERE t.type = 'buy'), false) AS pnl_settled,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'buy'), 0) AS total_bought,
+        COALESCE(SUM(t.total) FILTER (WHERE t.type = 'buy'), 0) AS total_invested,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'sell'), 0) AS total_sold,
+        COALESCE(SUM(t.total) FILTER (WHERE t.type = 'sell'), 0) AS total_sell_amount,
+        MIN(t.executed_at) FILTER (WHERE t.type = 'buy') AS first_buy_date,
+        MAX(t.executed_at) FILTER (WHERE t.type = 'sell') AS last_sell_date
+      FROM stock_groups g
+      JOIN stocks s ON s.id = g.stock_id
+      LEFT JOIN transactions t ON t.group_id = g.id
+      WHERE g.holder_id = $1
+      GROUP BY s.id, s.symbol, s.name, s.sector, s.current_price, s.is_active,
+               g.id, g.label, g.investment_settled, g.pnl_settled
+      ORDER BY s.symbol ASC, g.created_at ASC
+    `, [req.user.id]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET all users who are holders in any stock group (for brokerage accounts page)
 router.get('/brokerage-accounts/holders', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
-      SELECT DISTINCT u.id, u.name, u.email, u.user_type, u.role,
-        COUNT(DISTINCT g.id)::int AS group_count,
-        COUNT(DISTINCT g.stock_id)::int AS stock_count
+      SELECT u.id, u.name, u.email, u.user_type, u.role,
+        COUNT(DISTINCT CASE
+          WHEN EXISTS (
+            SELECT 1 FROM transactions t
+            WHERE t.group_id = g.id AND t.type = 'buy'
+              AND (t.investment_settled = false OR t.pnl_settled = false)
+          ) THEN g.stock_id END)::int AS active_stock_count
       FROM users u
       JOIN stock_groups g ON g.holder_id = u.id
       GROUP BY u.id, u.name, u.email, u.user_type, u.role
@@ -81,7 +126,8 @@ router.get('/brokerage-accounts/holder/:userId', authenticate, requireRole('admi
       SELECT
         s.id AS stock_id, s.symbol, s.name AS stock_name, s.sector, s.current_price, s.is_active,
         g.id AS group_id, g.label AS group_label,
-        g.investment_settled, g.pnl_settled,
+        COALESCE(BOOL_AND(t.investment_settled) FILTER (WHERE t.type = 'buy'), false) AS investment_settled,
+        COALESCE(BOOL_AND(t.pnl_settled) FILTER (WHERE t.type = 'buy'), false) AS pnl_settled,
         COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'buy'), 0) AS total_bought,
         COALESCE(SUM(t.total) FILTER (WHERE t.type = 'buy'), 0) AS total_invested,
         COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'sell'), 0) AS total_sold,
@@ -94,7 +140,7 @@ router.get('/brokerage-accounts/holder/:userId', authenticate, requireRole('admi
       LEFT JOIN transactions t ON t.group_id = g.id
       WHERE g.holder_id = $1
       GROUP BY s.id, s.symbol, s.name, s.sector, s.current_price, s.is_active,
-               g.id, g.label, g.investment_settled, g.pnl_settled
+               g.id, g.label
       ORDER BY s.symbol ASC, g.created_at ASC
     `, [req.params.userId]);
     res.json(rows);
@@ -141,7 +187,7 @@ router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), as
           )::numeric, 2)
           ELSE NULL
         END AS avg_sell_price,
-        CASE WHEN h.quantity > 0 THEN 'active' ELSE 'exited' END AS status,
+        CASE WHEN ROUND(h.quantity::numeric, 2) > 0 THEN 'active' ELSE 'exited' END AS status,
         (
           SELECT MIN(t.executed_at)
           FROM transactions t WHERE t.user_id = u.id AND t.stock_id = s.id AND t.type = 'buy'
@@ -216,7 +262,9 @@ router.get('/:id/investments', authenticate, requireRole('admin', 'super_admin')
         (SELECT MAX(sel.executed_at) FROM transactions sel
           WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
             AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id) AS last_sell_date,
-        t.notes
+        t.notes,
+        t.investment_settled,
+        t.pnl_settled
       FROM transactions t
       JOIN users u ON u.id = t.user_id
       JOIN stocks s ON s.id = t.stock_id
@@ -289,12 +337,12 @@ router.post('/preview-price', authenticate, requireRole('admin', 'super_admin'),
 // POST create stock
 router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { symbol, name, sector, current_price } = req.body;
+    const { symbol, name, sector, current_price, market_cap_category } = req.body;
     if (!symbol || !name) return res.status(400).json({ error: 'symbol and name required' });
     const { rows } = await query(
-      `INSERT INTO stocks (symbol, name, sector, current_price, previous_close, last_updated)
-       VALUES ($1, $2, $3, $4, $4, NOW()) RETURNING *`,
-      [symbol.toUpperCase(), name, sector || null, current_price || 0]
+      `INSERT INTO stocks (symbol, name, sector, current_price, previous_close, last_updated, market_cap_category)
+       VALUES ($1, $2, $3, $4, $4, NOW(), $5) RETURNING *`,
+      [symbol.toUpperCase(), name, sector || null, current_price || 0, market_cap_category || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -306,7 +354,7 @@ router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, 
 // PUT update stock price / details
 router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
-    const { name, sector, current_price, is_active, investment_settled, pnl_settled, brokerage } = req.body;
+    const { name, sector, current_price, is_active, investment_settled, pnl_settled, brokerage, market_cap_category } = req.body;
     const { rows } = await query(
       `UPDATE stocks SET
         name = COALESCE($1::varchar, name),
@@ -317,10 +365,11 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
         investment_settled = COALESCE($6::boolean, investment_settled),
         pnl_settled = COALESCE($7::boolean, pnl_settled),
         brokerage = COALESCE($8::numeric, brokerage),
+        market_cap_category = COALESCE($9::varchar, market_cap_category),
         last_updated = NOW()
        WHERE id = $5 RETURNING *`,
       [name ?? null, sector ?? null, current_price ?? null, is_active ?? null, req.params.id,
-       investment_settled ?? null, pnl_settled ?? null, brokerage ?? null]
+       investment_settled ?? null, pnl_settled ?? null, brokerage ?? null, market_cap_category ?? null]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Stock not found' });
     res.json(rows[0]);
@@ -328,6 +377,24 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
     console.error('PUT /stocks/:id error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET all sell transactions for a stock (optionally filtered by group)
+router.get('/:id/sell-transactions', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { group_id } = req.query;
+    const params = [req.params.id];
+    let sql = `
+      SELECT t.id, t.user_id, u.name AS user_name, t.quantity, t.price, t.total, t.brokerage, t.executed_at, t.notes, t.group_id
+      FROM transactions t
+      JOIN users u ON u.id = t.user_id
+      WHERE t.stock_id = $1 AND t.type = 'sell'
+    `;
+    if (group_id) { params.push(group_id); sql += ` AND t.group_id = $${params.length}`; }
+    sql += ` ORDER BY u.name ASC, t.executed_at ASC`;
+    const { rows } = await query(sql, params);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET transaction history for a specific holder in a stock
@@ -410,6 +477,22 @@ router.put('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// PATCH update per-investor settled flags
+router.patch('/:id/transactions/:txnId/settled', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { investment_settled, pnl_settled } = req.body;
+    const { rows: [row] } = await query(
+      `UPDATE transactions SET
+        investment_settled = COALESCE($1::boolean, investment_settled),
+        pnl_settled = COALESCE($2::boolean, pnl_settled)
+       WHERE id = $3 AND stock_id = $4 RETURNING investment_settled, pnl_settled`,
+      [investment_settled ?? null, pnl_settled ?? null, req.params.txnId, req.params.id]
+    );
+    if (!row) return res.status(404).json({ error: 'Transaction not found' });
+    res.json(row);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // DELETE a transaction (reverses its effect on holdings)
 router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
@@ -444,7 +527,7 @@ router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'su
         `SELECT quantity FROM holdings WHERE user_id = $1 AND stock_id = $2`,
         [txn.user_id, stockId]
       );
-      if (holding && parseFloat(holding.quantity) <= 0) {
+      if (holding && Math.round(parseFloat(holding.quantity) * 100) / 100 <= 0) {
         // No shares left — remove the holding entirely
         await query(
           `DELETE FROM holdings WHERE user_id = $1 AND stock_id = $2`,
@@ -508,6 +591,19 @@ router.delete('/:id/brokerage/:tid', authenticate, requireRole('admin', 'super_a
       [req.params.tid, req.params.id]
     );
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT update a brokerage transaction
+router.put('/:id/brokerage/:tid', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { amount, label } = req.body;
+    const { rows } = await query(
+      `UPDATE brokerage_transactions SET amount = $1, label = COALESCE($2, label) WHERE id = $3 AND stock_id = $4 RETURNING *`,
+      [parseFloat(amount), label ?? null, req.params.tid, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -595,7 +691,7 @@ router.put('/:id/holders/:holderId/group', authenticate, requireRole('admin', 's
 });
 
 // DELETE stock
-router.delete('/:id', authenticate, requireRole('super_admin'), async (req, res) => {
+router.delete('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query('SELECT id FROM stocks WHERE id = $1', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Stock not found' });

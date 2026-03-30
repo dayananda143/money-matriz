@@ -1,6 +1,6 @@
 export function Table({ children, className = '' }) {
   return (
-    <div className={`overflow-x-auto ${className}`}>
+    <div className={`overflow-auto max-h-[60vh] ${className}`}>
       <table className="w-full text-sm">{children}</table>
     </div>
   );
@@ -8,7 +8,7 @@ export function Table({ children, className = '' }) {
 
 export function Th({ children, className = '', onClick }) {
   return (
-    <th onClick={onClick} className={`table-header text-left px-4 py-3 bg-gray-50 dark:bg-gray-800/50 ${className}`}>
+    <th onClick={onClick} className={`table-header text-left px-4 py-3 bg-gray-50 dark:bg-gray-800 sticky top-0 z-10 border-b border-gray-200 dark:border-gray-700 ${className}`}>
       {children}
     </th>
   );

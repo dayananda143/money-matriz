@@ -1,24 +1,30 @@
 import { useEffect, useState } from 'react';
-import { Users, TrendingUp, Wallet, BarChart2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
-import StatCard from '../../components/ui/StatCard';
-import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
-import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
+import { SkeletonPageHeader, SkeletonStatCards } from '../../components/ui/Skeleton';
+import HoldingsWidget from '../../components/shared/HoldingsWidget';
 
 export default function ShareholderDashboard() {
-  const [stats, setStats] = useState(null);
-  const [clients, setClients] = useState([]);
+  const { user } = useAuth();
+  const [allClients, setAllClients] = useState([]);
+  const [demat, setDemat] = useState([]);
+  const [sipNet, setSipNet] = useState(0);
+  const [portfolio, setPortfolio] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
+      api.get('/relationships/all-clients?scope=all'),
+      api.get('/stocks/my-demat'),
       api.get('/dashboard/shareholder'),
-      api.get('/relationships/shareholder/me')
-    ]).then(([s, c]) => {
-      setStats(s.data);
-      setClients(c.data);
+      api.get('/portfolio/me/summary'),
+    ]).then(([c, d, s, p]) => {
+      setAllClients(c.data);
+      setDemat(d.data);
+      setSipNet(parseFloat(s.data?.sip_net_invested || 0));
+      setPortfolio(p.data);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
@@ -26,9 +32,18 @@ export default function ShareholderDashboard() {
     <div className="space-y-6">
       <SkeletonPageHeader />
       <SkeletonStatCards count={4} />
-      <SkeletonTable rows={6} cols={5} />
+      <SkeletonStatCards count={4} />
     </div>
   );
+
+  const activeHoldings = demat.filter(h => parseFloat(h.total_bought) - parseFloat(h.total_sold) > 0);
+  const totalInvested = activeHoldings.reduce((s, h) => s + parseFloat(h.total_invested), 0);
+  const totalCurrentValue = activeHoldings.reduce((s, h) => {
+    const rem = parseFloat(h.total_bought) - parseFloat(h.total_sold);
+    return s + rem * parseFloat(h.current_price);
+  }, 0);
+  const unrealizedPnl = totalCurrentValue - totalInvested;
+  const pnlPct = totalInvested > 0 ? unrealizedPnl / totalInvested * 100 : 0;
 
   return (
     <div className="space-y-6">
@@ -37,47 +52,74 @@ export default function ShareholderDashboard() {
         <p className="text-gray-500 text-sm mt-1">Overview of your portfolio and clients</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard title="Total Clients" value={stats?.client_count ?? 0} icon={Users} color="brand" />
-        <StatCard title="Clients AUM" value={fmt.currency((stats?.clients_cash_aum || 0) + (stats?.clients_portfolio_aum || 0))} icon={BarChart2} color="blue" />
-        <StatCard title="Own Portfolio" value={fmt.currency(stats?.own_portfolio_value)} icon={TrendingUp} color="purple" />
-        <StatCard title="Own Cash" value={fmt.currency(stats?.own_cash_balance)} icon={Wallet} color="orange" />
+      {/* My Portfolio */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">My Portfolio</p>
+          <Link to="/demat" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Demat Account →</Link>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="card p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400">SIP Net Invested</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(sipNet)}</p>
+            <p className="text-xs text-gray-400 mt-1">Total SIP deployed</p>
+          </div>
+          <div className="card p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Total Invested</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(totalInvested)}</p>
+            <p className="text-xs text-gray-400 mt-1">Active holdings cost</p>
+          </div>
+          <div className="card p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Current Value</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(totalCurrentValue)}</p>
+            <p className="text-xs text-gray-400 mt-1">{activeHoldings.length} active stocks</p>
+          </div>
+          <div className="card p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400">Unrealized P&amp;L</p>
+            <p className={`text-xl font-bold mt-1 ${pnlColor(unrealizedPnl)}`}>{pnlSign(unrealizedPnl)}{fmt.currency(unrealizedPnl)}</p>
+            {totalInvested > 0 && <p className={`text-xs font-medium mt-1 ${pnlColor(pnlPct)}`}>{pnlSign(pnlPct)}{fmt.percent(Math.abs(pnlPct))}</p>}
+          </div>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">My Clients</h2>
-          <Link to="/clients" className="text-sm text-brand-600 hover:text-brand-700 font-medium">View all →</Link>
-        </div>
-        <Table>
-          <thead>
-            <tr>
-              <Th>Client</Th>
-              <Th>Cash Balance</Th>
-              <Th>Portfolio Value</Th>
-              <Th>Total Value</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {!clients.length && <EmptyRow cols={5} message="No clients assigned" />}
-            {clients.slice(0, 8).map(c => (
-              <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                <Td>
-                  <Link to={`/clients/${c.id}`} className="hover:text-brand-600">
-                    <p className="font-medium text-gray-900 dark:text-white">{c.name}</p>
-                    <p className="text-xs text-gray-500">{c.email}</p>
-                  </Link>
-                </Td>
-                <Td>{fmt.currency(c.cash_balance)}</Td>
-                <Td>{fmt.currency(c.portfolio_value)}</Td>
-                <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>
-                <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </div>
+      {/* Clients Summary */}
+      {(() => {
+        const activeClients = allClients.filter(c => c.is_active);
+        const clientsGiven      = activeClients.reduce((s, c) => s + parseFloat(c.total_deposited || 0), 0);
+        const clientsInvested   = activeClients.reduce((s, c) => s + parseFloat(c.active_invested || 0), 0);
+        const clientsRealized   = activeClients.reduce((s, c) => s + parseFloat(c.realized_pnl || 0), 0);
+        const clientsUnrealized = activeClients.reduce((s, c) => s + parseFloat(c.unrealized_pnl || 0), 0);
+        return (
+          <div>
+            <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Clients Summary</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="card p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total Given</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(clientsGiven)}</p>
+                <p className="text-xs text-gray-400 mt-1">Deposits − withdrawals</p>
+              </div>
+              <div className="card p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total Invested</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(clientsInvested)}</p>
+                <p className="text-xs text-gray-400 mt-1">Active holdings cost</p>
+              </div>
+              <div className="card p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Realized P&amp;L</p>
+                <p className={`text-xl font-bold mt-1 ${pnlColor(clientsRealized)}`}>{pnlSign(clientsRealized)}{fmt.currency(clientsRealized)}</p>
+                {clientsGiven > 0 && <p className={`text-xs font-medium mt-1 ${pnlColor(clientsRealized)}`}>{pnlSign(clientsRealized)}{fmt.percent(Math.abs(clientsRealized / clientsGiven * 100))} of given</p>}
+              </div>
+              <div className="card p-4">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Unrealized P&amp;L</p>
+                <p className={`text-xl font-bold mt-1 ${pnlColor(clientsUnrealized)}`}>{pnlSign(clientsUnrealized)}{fmt.currency(clientsUnrealized)}</p>
+                {clientsInvested > 0 && <p className={`text-xs font-medium mt-1 ${pnlColor(clientsUnrealized)}`}>{pnlSign(clientsUnrealized)}{fmt.percent(Math.abs(clientsUnrealized / clientsInvested * 100))} of invested</p>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <HoldingsWidget holdings={portfolio?.holdings} />
+
     </div>
   );
 }

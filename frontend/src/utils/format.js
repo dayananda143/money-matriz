@@ -2,6 +2,13 @@ export const fmt = {
   currency: (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n ?? 0),
   number: (n, d = 2) => parseFloat(n ?? 0).toFixed(d),
   percent: (n) => `${parseFloat(n ?? 0).toFixed(2)}%`,
+  compact: (n) => {
+    const v = parseFloat(n ?? 0);
+    if (Math.abs(v) >= 1e7) return `₹${(v / 1e7).toFixed(2)}Cr`;
+    if (Math.abs(v) >= 1e5) return `₹${(v / 1e5).toFixed(2)}L`;
+    if (Math.abs(v) >= 1e3) return `₹${(v / 1e3).toFixed(2)}k`;
+    return `₹${v.toFixed(2)}`;
+  },
   date: (d) => {
     if (!d) return '—';
     const s = String(d).slice(0, 10);

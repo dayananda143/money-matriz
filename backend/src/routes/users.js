@@ -33,15 +33,24 @@ router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, r
 });
 
 // GET single user
-router.get('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
+    const viewer = req.user;
+    const targetId = parseInt(req.params.id);
+    // Allow admin/super_admin, or the user themselves, or a shareholder viewing their client
+    const isAdminRole = viewer.role === 'admin' || viewer.role === 'super_admin';
+    const isSelf = viewer.id === targetId;
+    const isShareholder = viewer.user_type === 'shareholder';
+    if (!isAdminRole && !isSelf && !isShareholder) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const { rows } = await query(
-      `SELECT u.id, u.name, u.email, u.user_type, u.role, u.phone, u.is_active, u.created_at,
+      `SELECT u.id, u.name, u.email, u.user_type, u.role, u.phone, u.scheme, u.is_active, u.created_at,
        r.shareholder_id, sh.name as shareholder_name
        FROM users u
        LEFT JOIN relationships r ON r.client_id = u.id
        LEFT JOIN users sh ON sh.id = r.shareholder_id
-       WHERE u.id = $1`, [req.params.id]
+       WHERE u.id = $1`, [targetId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     res.json(rows[0]);
@@ -65,6 +74,13 @@ router.post('/', authenticate, requireRole('admin', 'super_admin'), async (req, 
     );
     // Create balance record
     await query('INSERT INTO balances (user_id, cash_balance) VALUES ($1, 0) ON CONFLICT DO NOTHING', [rows[0].id]);
+    // Sync user_schemes
+    if (user_type === 'client' && scheme) {
+      const schemes = scheme.split(',').map(s => s.trim()).filter(Boolean);
+      for (const s of schemes) {
+        await query(`INSERT INTO user_schemes (user_id, scheme, is_active) VALUES ($1, $2, true) ON CONFLICT (user_id, scheme) DO NOTHING`, [rows[0].id, s]);
+      }
+    }
     res.status(201).json(rows[0]);
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already exists' });
@@ -87,6 +103,21 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
       [name, email, user_type, role, phone, scheme || null, proof_type || null, proof || null, is_active, terminated_at || null, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    // Sync user_schemes when scheme is explicitly provided
+    if (scheme !== undefined && rows[0].user_type === 'client') {
+      const newSchemes = (scheme || '').split(',').map(s => s.trim()).filter(Boolean);
+      // Remove schemes no longer in the list
+      const { rows: existing } = await query('SELECT scheme FROM user_schemes WHERE user_id = $1', [req.params.id]);
+      for (const row of existing) {
+        if (!newSchemes.includes(row.scheme)) {
+          await query('DELETE FROM user_schemes WHERE user_id = $1 AND scheme = $2', [req.params.id, row.scheme]);
+        }
+      }
+      // Add new schemes (preserve is_active for existing ones)
+      for (const s of newSchemes) {
+        await query(`INSERT INTO user_schemes (user_id, scheme, is_active) VALUES ($1, $2, true) ON CONFLICT (user_id, scheme) DO NOTHING`, [req.params.id, s]);
+      }
+    }
     res.json(rows[0]);
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already exists' });
@@ -118,6 +149,35 @@ router.put('/:id/reset-password', authenticate, requireRole('admin', 'super_admi
     const hash = await bcrypt.hash(new_password, 10);
     await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, req.params.id]);
     res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET user scheme statuses
+router.get('/:id/schemes', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = await query(
+      'SELECT scheme, is_active FROM user_schemes WHERE user_id = $1 ORDER BY scheme',
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT toggle per-scheme active status
+router.put('/:id/schemes/:scheme', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { is_active } = req.body;
+    const { rows } = await query(`
+      INSERT INTO user_schemes (user_id, scheme, is_active)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (user_id, scheme) DO UPDATE SET is_active = $3
+      RETURNING *
+    `, [req.params.id, req.params.scheme, is_active]);
+    res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
