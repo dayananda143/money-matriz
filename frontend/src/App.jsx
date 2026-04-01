@@ -31,6 +31,7 @@ import CompanyDashboardPage from './pages/company/CompanyDashboardPage';
 
 // Shared pages
 import IdeasPage from './pages/shared/IdeasPage';
+import MoversPage from './pages/shared/MoversPage';
 
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
@@ -67,6 +68,9 @@ function ProtectedRoutes() {
 
         {/* Ideas — shareholders + admins */}
         {(isShareholder || isAdmin) && <Route path="/ideas" element={<IdeasPage />} />}
+
+        {/* Movers — all users */}
+        <Route path="/movers" element={<MoversPage />} />
 
         {/* Demat account — any user with personal holdings */}
         <Route path="/demat" element={<DematAccountPage />} />

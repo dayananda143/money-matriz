@@ -2,6 +2,35 @@ const router = require('express').Router();
 const { query } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 
+const YahooFinance = require('yahoo-finance2').default;
+const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+
+async function fetchLivePrices(symbols) {
+  const results = {};
+  await Promise.all(symbols.map(async (symbol) => {
+    const base = symbol.toUpperCase().trim();
+    const isNumeric = /^\d+$/.test(base);
+    const candidates = isNumeric
+      ? [base + '.BO', base + '.NS', base]
+      : [base + '.NS', base + '.BO', base];
+    for (const sym of candidates) {
+      try {
+        const q = await yf.quote(sym, {}, { validateResult: false });
+        if (q?.regularMarketPrice) {
+          results[symbol] = {
+            price: q.regularMarketPrice,
+            previousClose: q.regularMarketPreviousClose || q.regularMarketPrice,
+            change: q.regularMarketChange || 0,
+            changePercent: q.regularMarketChangePercent || 0,
+          };
+          break;
+        }
+      } catch {}
+    }
+  }));
+  return results;
+}
+
 // Super admin / admin overview
 router.get('/overview', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
@@ -191,6 +220,87 @@ router.get('/shareholder', authenticate, async (req, res) => {
       own_cash_balance: parseFloat(ownBalance.rows[0]?.cash_balance || 0),
       sip_net_invested: parseFloat(sipRes.rows[0].net_invested),
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/dashboard/movers — active holdings for logged-in user with live prices
+router.get('/movers', authenticate, async (req, res) => {
+  try {
+    const { rows } = await query(`
+      SELECT
+        s.symbol, s.name AS stock_name, s.sector,
+        s.current_price, s.previous_close,
+        h.quantity AS total_quantity,
+        h.avg_buy_price
+      FROM holdings h
+      JOIN stocks s ON s.id = h.stock_id
+      WHERE h.quantity > 0 AND h.user_id = $1
+    `, [req.user.id]);
+
+    if (!rows.length) return res.json({ gainers: [], losers: [], flat: [] });
+
+    // Fetch live prices for all symbols in parallel
+    const symbols = rows.map(r => r.symbol);
+    const live = await fetchLivePrices(symbols);
+
+    const movers = rows.map(r => {
+      const liveData = live[r.symbol];
+      const currentPrice   = liveData?.price        ?? parseFloat(r.current_price);
+      const previousClose  = liveData?.previousClose ?? parseFloat(r.previous_close);
+      const change         = liveData?.change        ?? (currentPrice - previousClose);
+      const changePercent  = liveData?.changePercent ?? (previousClose > 0 ? (change / previousClose * 100) : 0);
+      const qty            = parseFloat(r.total_quantity);
+      return {
+        symbol:         r.symbol,
+        stock_name:     r.stock_name,
+        sector:         r.sector,
+        current_price:  currentPrice,
+        previous_close: previousClose,
+        change:         parseFloat(change.toFixed(4)),
+        change_percent: parseFloat(changePercent.toFixed(2)),
+        total_quantity: qty,
+        market_value:   parseFloat((qty * currentPrice).toFixed(2)),
+        avg_buy_price:  parseFloat(r.avg_buy_price),
+      };
+    }).sort((a, b) => b.change_percent - a.change_percent);
+
+    const gainers = movers.filter(m => m.change_percent > 0);
+    const losers  = movers.filter(m => m.change_percent < 0).reverse();
+    const flat    = movers.filter(m => m.change_percent === 0);
+
+    res.json({ gainers, losers, flat });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/dashboard/movers/holders?symbol=SWSOLAR — who holds this stock
+router.get('/movers/holders', authenticate, async (req, res) => {
+  try {
+    const { symbol } = req.query;
+    if (!symbol) return res.status(400).json({ error: 'symbol required' });
+    const { rows } = await query(`
+      SELECT
+        u.id, u.name, u.user_type,
+        h.quantity,
+        h.avg_buy_price,
+        s.current_price,
+        h.quantity * s.current_price AS market_value,
+        h.quantity * s.current_price - h.quantity * h.avg_buy_price AS pnl,
+        CASE WHEN h.avg_buy_price > 0
+          THEN ROUND(((s.current_price - h.avg_buy_price) / h.avg_buy_price * 100)::numeric, 2)
+          ELSE 0 END AS pnl_percent
+      FROM holdings h
+      JOIN stocks s ON s.id = h.stock_id
+      JOIN users u ON u.id = h.user_id
+      WHERE s.symbol = $1 AND h.quantity > 0
+      ORDER BY market_value DESC
+    `, [symbol]);
+    res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
