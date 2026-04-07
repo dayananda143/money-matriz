@@ -36,9 +36,14 @@ router.post('/login', async (req, res) => {
 
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const { rows } = await query(
-      'SELECT id, name, email, user_type, role, phone, created_at FROM users WHERE id = $1', [req.user.id]
-    );
+    const { rows } = await query(`
+      SELECT u.id, u.name, u.email, u.user_type, u.role, u.phone, u.scheme, u.is_active, u.created_at,
+             sh.name as manager_name, sh.email as manager_email
+      FROM users u
+      LEFT JOIN relationships r ON r.client_id = u.id
+      LEFT JOIN users sh ON sh.id = r.shareholder_id
+      WHERE u.id = $1
+    `, [req.user.id]);
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

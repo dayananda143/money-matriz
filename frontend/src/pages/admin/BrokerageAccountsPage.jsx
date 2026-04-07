@@ -16,10 +16,11 @@ export default function BrokerageAccountsPage() {
   const [selectedHolder, setSelectedHolder] = useState(null);
   const [groups, setGroups] = useState([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [stockFilter, setStockFilter] = useState('active');
 
   useEffect(() => {
     api.get('/stocks/brokerage-accounts/holders')
-      .then(r => setHolders(r.data))
+      .then(r => setHolders(r.data.sort((a, b) => b.active_stock_count - a.active_stock_count)))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -39,13 +40,19 @@ export default function BrokerageAccountsPage() {
     acc[g.stock_id].groups.push(g);
     return acc;
   }, {});
-  const stocks = Object.values(stockMap);
+  const allStocks = Object.values(stockMap).map(s => ({
+    ...s,
+    fullySettled: s.groups.length > 0 && s.groups.every(g => g.investment_settled && g.pnl_settled),
+  }));
+  const activeCount = allStocks.filter(s => !s.fullySettled).length;
+  const inactiveCount = allStocks.filter(s => s.fullySettled).length;
+  const stocks = stockFilter === 'all' ? allStocks : allStocks.filter(s => stockFilter === 'active' ? !s.fullySettled : s.fullySettled);
 
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
         {selectedHolder && (
-          <button onClick={() => { setSelectedHolder(null); setGroups([]); }}
+          <button onClick={() => { setSelectedHolder(null); setGroups([]); setStockFilter('active'); }}
             className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
             <ArrowLeft size={18} />
           </button>
@@ -92,12 +99,8 @@ export default function BrokerageAccountsPage() {
                 </div>
                 <div className="flex items-center gap-4 text-right">
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{h.stock_count}</p>
-                    <p className="text-xs text-gray-400">stocks</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{h.group_count}</p>
-                    <p className="text-xs text-gray-400">transactions</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{h.active_stock_count}</p>
+                    <p className="text-xs text-gray-400">active stocks</p>
                   </div>
                   <ChevronRight size={16} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
                 </div>
@@ -107,19 +110,30 @@ export default function BrokerageAccountsPage() {
         )
       ) : (
         /* Stock detail for selected holder */
-        groupsLoading ? (
-          <div className="space-y-3">
-            {[1,2].map(i => (
-              <div key={i} className="h-32 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
-            ))}
-          </div>
-        ) : stocks.length === 0 ? (
-          <div className="text-center py-16">
-            <TrendingUp size={40} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-            <p className="text-gray-500 dark:text-gray-400">No stocks found for this account.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
+        <>
+          {!groupsLoading && allStocks.length > 0 && (
+            <div className="flex gap-2">
+              {[['all', `All (${allStocks.length})`], ['active', `Active (${activeCount})`], ['inactive', `Inactive (${inactiveCount})`]].map(([val, label]) => (
+                <button key={val} onClick={() => setStockFilter(val)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${stockFilter === val ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {groupsLoading ? (
+            <div className="space-y-3">
+              {[1,2].map(i => (
+                <div key={i} className="h-32 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : stocks.length === 0 ? (
+            <div className="text-center py-16">
+              <TrendingUp size={40} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+              <p className="text-gray-500 dark:text-gray-400">{allStocks.length === 0 ? 'No stocks found for this account.' : 'No stocks match this filter.'}</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
             {stocks.map(s => {
               const totalInvested = s.groups.reduce((sum, g) => sum + parseFloat(g.total_invested || 0), 0);
               const totalBought = s.groups.reduce((sum, g) => sum + parseFloat(g.total_bought || 0), 0);
@@ -127,7 +141,7 @@ export default function BrokerageAccountsPage() {
               const totalSellAmt = s.groups.reduce((sum, g) => sum + parseFloat(g.total_sell_amount || 0), 0);
               const currentVal = (totalBought - totalSold) * parseFloat(s.current_price || 0);
               const pnl = currentVal - (totalInvested - totalSellAmt);
-              const allSettled = s.groups.every(g => g.investment_settled && g.pnl_settled);
+              const allSettled = s.fullySettled;
 
               return (
                 <div key={s.stock_id} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
@@ -199,8 +213,9 @@ export default function BrokerageAccountsPage() {
                 </div>
               );
             })}
-          </div>
-        )
+            </div>
+          )}
+        </>
       )}
     </div>
   );

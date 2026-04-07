@@ -15,6 +15,8 @@ app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/config', require('./routes/config'));
 app.use('/api/company', require('./routes/company'));
 app.use('/api/ideas', require('./routes/ideas'));
+app.use('/api/sip', require('./routes/sip'));
+app.use('/api/trade-requests', require('./routes/trade-requests'));
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 

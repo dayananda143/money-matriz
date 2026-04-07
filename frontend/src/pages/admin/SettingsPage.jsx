@@ -133,6 +133,14 @@ export default function SettingsPage() {
         onSaved={handleSaved}
       />
 
+      <TagList
+        label="SIP Types"
+        description="Types of SIP entries (e.g. lumpsum, monthly_sip, quarterly_sip). Shown as a dropdown when adding or editing a SIP entry."
+        configKey="sip_types"
+        items={config.sip_types || []}
+        onSaved={handleSaved}
+      />
+
       <div className="card p-5 bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
         <h3 className="font-semibold text-amber-800 dark:text-amber-400">Important Notes</h3>
         <ul className="mt-2 space-y-1 text-sm text-amber-700 dark:text-amber-500 list-disc list-inside">

@@ -39,6 +39,20 @@ async function fetchYahooPrice(symbol) {
   return null;
 }
 
+// GET stock info from Yahoo Finance by symbol (for new stock lookup)
+router.get('/lookup', authenticate, async (req, res) => {
+  try {
+    const { symbol } = req.query;
+    if (!symbol) return res.status(400).json({ error: 'symbol required' });
+    const data = await fetchYahooPrice(symbol);
+    if (!data) return res.status(404).json({ error: 'Symbol not found on Yahoo Finance' });
+    res.json({ name: data.name, sector: data.sector, price: data.price });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET all active stocks (all authenticated)
 router.get('/', authenticate, async (req, res) => {
   try {

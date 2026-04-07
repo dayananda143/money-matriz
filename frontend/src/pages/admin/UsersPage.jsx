@@ -1,19 +1,42 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonSearchBar, SkeletonTable } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
+import { useAuth } from '../../contexts/AuthContext';
 
 const EMPTY_FORM = { name: '', email: '', password: 'changeme', user_type: 'client', role: 'user', phone: '', scheme: '', proof_type: 'pan_card', proof: '', is_active: true, terminated_at: '' };
 const PROOF_TYPES = [{ value: 'pan_card', label: 'PAN Card' }, { value: 'aadhar_card', label: 'Aadhar Card' }];
 
+const TABS = [
+  { key: 'employee',    label: 'Employee' },
+  { key: 'shareholder', label: 'Shareholder' },
+  { key: 'client',      label: 'Client' },
+];
+
+function tabFilter(u, tab) {
+  if (tab === 'employee')    return u.user_type === 'employee';
+  if (tab === 'shareholder') return u.user_type === 'shareholder';
+  if (tab === 'client')      return u.user_type === 'client';
+  return true;
+}
+
 function UserForm({ form, setForm, onSubmit, onCancel, isCreate, saving, error, userTypes, roles, schemes }) {
   const [showPw, setShowPw] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
+  const handleSubmit = (e) => {
+    if (form.user_type === 'client' && !form.scheme?.trim()) {
+      e.preventDefault();
+      alert('Please select at least one scheme for a client.');
+      return;
+    }
+    onSubmit(e);
+  };
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
@@ -63,7 +86,7 @@ function UserForm({ form, setForm, onSubmit, onCancel, isCreate, saving, error, 
         </div>
         {form.user_type === 'client' && (
           <div className="col-span-2">
-            <label className="label">Schemes (optional)</label>
+            <label className="label">Scheme <span className="text-red-500">*</span></label>
             {schemes?.length > 0 ? (
               <div className="flex flex-wrap gap-2 mt-1">
                 {schemes.map(s => {
@@ -114,16 +137,201 @@ function UserForm({ form, setForm, onSubmit, onCancel, isCreate, saving, error, 
   );
 }
 
-export default function UsersPage() {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
+function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, openSchemes, isSuperAdmin }) {
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
+  const [schemeFilter, setSchemeFilter] = useState('all');
   const [sort, setSort] = useState({ col: 'name', dir: 'asc' });
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+
+  const isClient = tab === 'client';
+
+  // Derive unique schemes from users in this tab
+  const allSchemes = isClient
+    ? [...new Set(users.flatMap(u => (u.scheme || '').split(',').map(s => s.trim()).filter(Boolean)))].sort()
+    : [];
+
+  const preStatus = users.filter(u => {
+    const matchSearch = !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+    const matchScheme = !isClient || schemeFilter === 'all' || (u.scheme || '').split(',').map(s => s.trim()).includes(schemeFilter);
+    return matchSearch && matchScheme;
+  });
+
+  const filtered = preStatus.filter(u =>
+    statusFilter === 'all' ? true : statusFilter === 'active' ? u.is_active : !u.is_active
+  );
+
+  const toggleSort = (col) => { setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }); setPage(1); };
+  const sorted = [...filtered].sort((a, b) => {
+    const v1 = a[sort.col] ?? '', v2 = b[sort.col] ?? '';
+    const cmp = typeof v1 === 'boolean' ? (v1 === v2 ? 0 : v1 ? -1 : 1) : String(v1).localeCompare(String(v2), undefined, { numeric: true });
+    return sort.dir === 'asc' ? cmp : -cmp;
+  });
+
+  const totalPages = Math.ceil(sorted.length / limit) || 1;
+  const paged = sorted.slice((page - 1) * limit, page * limit);
+
+  const SortIcon = ({ col }) => {
+    if (sort.col !== col) return <ChevronsUpDown size={13} className="ml-1 text-gray-400 inline" />;
+    return sort.dir === 'asc' ? <ChevronUp size={13} className="ml-1 text-brand-600 inline" /> : <ChevronDown size={13} className="ml-1 text-brand-600 inline" />;
+  };
+  const SortTh = ({ col, children }) => (
+    <Th><button onClick={() => toggleSort(col)} className="flex items-center gap-0.5 hover:text-brand-600 transition-colors">{children}<SortIcon col={col} /></button></Th>
+  );
+
+  // columns differ per tab
+  const isEmployee = tab === 'employee';
+  const isShareholder = tab === 'shareholder';
+  const colCount = isClient ? 7 : isEmployee ? 6 : isShareholder ? 7 : 6;
+
+  return (
+    <div className="card">
+      {/* Status tabs + toolbar */}
+      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-0">
+        <div className="flex">
+          {[
+            { key: 'all',      label: 'All',      count: preStatus.length },
+            { key: 'active',   label: 'Active',   count: preStatus.filter(u => u.is_active).length },
+            { key: 'inactive', label: 'Inactive', count: preStatus.filter(u => !u.is_active).length },
+          ].map(t => (
+            <button key={t.key} onClick={() => { setStatusFilter(t.key); setPage(1); }}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${statusFilter === t.key ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+              {t.label}
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${statusFilter === t.key ? 'bg-brand-100 dark:bg-brand-900/30 text-brand-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{t.count}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 mb-1">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+          <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+            {[5, 10, 15, 20, 25].map(n => (
+              <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input className="pl-8 pr-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
+              placeholder={`Search ${tab}s…`} value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Scheme filter — client tab only */}
+      {isClient && allSchemes.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-700 flex-wrap">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Scheme:</span>
+          {['all', ...allSchemes].map(s => (
+            <button key={s} onClick={() => { setSchemeFilter(s); setPage(1); }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors capitalize ${schemeFilter === s ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+              {s === 'all' ? 'All' : s.replace(/_/g, ' ')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <Table>
+        <thead>
+          <tr>
+            <SortTh col="name">Name</SortTh>
+            <SortTh col="email">Email</SortTh>
+            {isClient && <SortTh col="scheme">Scheme</SortTh>}
+            {isClient && <SortTh col="shareholder_name">Manager</SortTh>}
+            {(isEmployee || isShareholder) && <SortTh col="role">Role</SortTh>}
+            <SortTh col="is_active">Status</SortTh>
+            <SortTh col="created_at">Joined</SortTh>
+            {isSuperAdmin && <Th>Actions</Th>}
+          </tr>
+        </thead>
+        <tbody>
+          {!sorted.length && <EmptyRow cols={colCount} message={`No ${tab}s found`} />}
+          {paged.map(u => (
+            <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+              <Td className="font-medium text-gray-900 dark:text-white">{u.name}</Td>
+              <Td className="text-gray-500">{u.email}</Td>
+              {isClient && (
+                <Td>
+                  {u.scheme
+                    ? <div className="flex flex-wrap gap-1">{u.scheme.split(',').map(s => s.trim()).filter(Boolean).map(s => <span key={s} className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{s.replace(/_/g, ' ')}</span>)}</div>
+                    : <span className="text-gray-400 text-xs">—</span>}
+                </Td>
+              )}
+              {isClient && <Td className="text-gray-500 text-xs">{u.shareholder_name || '—'}</Td>}
+              {(isEmployee || isShareholder) && (
+                <Td><span className={u.role === 'super_admin' ? 'badge-red' : u.role === 'admin' ? 'badge-blue' : 'badge-gray'}>{u.role.replace('_', ' ')}</span></Td>
+              )}
+              <Td><span className={u.is_active ? 'badge-green' : 'badge-red'}>{u.is_active ? 'Active' : 'Inactive'}</span></Td>
+              <Td className="text-gray-500 text-xs">{fmt.date(u.created_at)}</Td>
+              {isSuperAdmin && (
+                <Td>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openEdit(u)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={15} /></button>
+                    <button onClick={() => openReset(u)} className="p-1 text-gray-400 hover:text-orange-600" title="Reset password"><Key size={15} /></button>
+                    <button onClick={() => openToggle(u)} className="p-1 text-gray-400 hover:text-blue-600" title={u.is_active ? 'Deactivate' : 'Activate'}>
+                      {u.is_active ? <UserX size={15} /> : <UserCheck size={15} />}
+                    </button>
+                    {isClient && u.scheme && (
+                      <button onClick={() => openSchemes(u)} className="p-1 text-gray-400 hover:text-purple-600" title="Manage Schemes"><Layers size={15} /></button>
+                    )}
+                    <button onClick={() => openDelete(u)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={15} /></button>
+                  </div>
+                </Td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+
+      {totalPages > 1 && (
+        <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+          {(() => {
+            const range = [];
+            for (let i = 1; i <= totalPages; i++) {
+              if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+            }
+            const withEllipsis = [];
+            let prev = null;
+            for (const p of range) {
+              if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
+              withEllipsis.push(p);
+              prev = p;
+            }
+            return (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                  <ChevronLeft size={14} />
+                </button>
+                {withEllipsis.map((p, i) =>
+                  typeof p === 'string'
+                    ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                    : <button key={p} onClick={() => setPage(p)}
+                        className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+                        {p}
+                      </button>
+                )}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function UsersPage() {
+  const { user: authUser } = useAuth();
+  const isSuperAdmin = authUser?.role === 'super_admin';
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('shareholder');
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -133,6 +341,10 @@ export default function UsersPage() {
   const [userTypes, setUserTypes] = useState(['client', 'shareholder']);
   const [roles, setRoles] = useState(['user', 'admin', 'super_admin']);
   const [schemes, setSchemes] = useState([]);
+  const [schemeStatuses, setSchemeStatuses] = useState([]);
+  const [schemeLoading, setSchemeLoading] = useState(false);
+  const [toast, setToast] = useState(null);
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
   const load = () => {
     setLoading(true);
@@ -149,36 +361,15 @@ export default function UsersPage() {
 
   useEffect(load, []);
 
-  const preStatusFiltered = users.filter(u => {
-    const matchType = typeFilter === 'all' || u.user_type === typeFilter;
-    const matchRole = roleFilter === 'all' || u.role === roleFilter;
-    const matchSearch = !search.trim() || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
-    return matchType && matchRole && matchSearch;
-  });
+  const tabUsers = users.filter(u => tabFilter(u, activeTab));
 
-  const filtered = preStatusFiltered.filter(u => {
-    const matchStatus = statusFilter === 'all' || (statusFilter === 'active' ? u.is_active : !u.is_active);
-    return matchStatus;
-  });
-
-  const toggleSort = (col) => setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
-  const sorted = [...filtered].sort((a, b) => {
-    const v1 = a[sort.col] ?? '', v2 = b[sort.col] ?? '';
-    const cmp = typeof v1 === 'boolean' ? (v1 === v2 ? 0 : v1 ? -1 : 1) : String(v1).localeCompare(String(v2), undefined, { numeric: true });
-    return sort.dir === 'asc' ? cmp : -cmp;
-  });
-
-  const totalPages = Math.ceil(sorted.length / limit);
-  const paged = sorted.slice((page - 1) * limit, page * limit);
-  const SortIcon = ({ col }) => {
-    if (sort.col !== col) return <ChevronsUpDown size={13} className="ml-1 text-gray-400 inline" />;
-    return sort.dir === 'asc' ? <ChevronUp size={13} className="ml-1 text-brand-600 inline" /> : <ChevronDown size={13} className="ml-1 text-brand-600 inline" />;
+  const openCreate = () => {
+    const defaultType = activeTab === 'employee' ? 'shareholder' : activeTab;
+    const defaultRole = activeTab === 'employee' ? 'admin' : 'user';
+    setForm({ ...EMPTY_FORM, user_type: defaultType, role: defaultRole });
+    setError('');
+    setModal('create');
   };
-  const SortTh = ({ col, children }) => (
-    <Th><button onClick={() => toggleSort(col)} className="flex items-center gap-0.5 hover:text-brand-600 transition-colors">{children}<SortIcon col={col} /></button></Th>
-  );
-
-  const openCreate = () => { setForm(EMPTY_FORM); setError(''); setModal('create'); };
   const openEdit = (u) => { setSelected(u); setForm({ name: u.name, email: u.email, password: '', user_type: u.user_type, role: u.role, phone: u.phone || '', scheme: u.scheme || '', proof_type: u.proof_type || 'pan_card', proof: u.proof || '', is_active: u.is_active, terminated_at: u.terminated_at ? u.terminated_at.split('T')[0] : '' }); setError(''); setModal('edit'); };
   const openReset = (u) => { setSelected(u); setPwForm({ new_password: '' }); setError(''); setModal('reset-pw'); };
   const openDelete = (u) => { setSelected(u); setModal('delete'); };
@@ -186,21 +377,37 @@ export default function UsersPage() {
     try { await api.put(`/users/${u.id}`, { is_active: !u.is_active }); load(); } catch (err) { alert(err.message); }
   };
 
+  const openSchemes = async (u) => {
+    setSelected(u);
+    setSchemeLoading(true);
+    setModal('schemes');
+    try {
+      const res = await api.get(`/users/${u.id}/schemes`);
+      setSchemeStatuses(res.data);
+    } catch (err) { alert(err.message); }
+    finally { setSchemeLoading(false); }
+  };
+
+  const toggleScheme = async (scheme, currentActive) => {
+    try {
+      const res = await api.put(`/users/${selected.id}/schemes/${encodeURIComponent(scheme)}`, { is_active: !currentActive });
+      setSchemeStatuses(prev => prev.map(s => s.scheme === scheme ? { ...s, is_active: res.data.is_active } : s));
+      showToast(`${scheme.replace(/_/g, ' ')} marked as ${res.data.is_active ? 'active' : 'inactive'}`);
+    } catch (err) { alert(err.message); }
+  };
+
   const submitCreate = async (e) => {
     e.preventDefault(); setError(''); setSaving(true);
     try { await api.post('/users', form); setModal(null); load(); } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
-
   const submitEdit = async (e) => {
     e.preventDefault(); setError(''); setSaving(true);
     try { await api.put(`/users/${selected.id}`, form); setModal(null); load(); } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
-
   const submitReset = async (e) => {
     e.preventDefault(); setError(''); setSaving(true);
     try { await api.put(`/users/${selected.id}/reset-password`, pwForm); setModal(null); } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
-
   const submitDelete = async () => {
     setSaving(true);
     try { await api.delete(`/users/${selected.id}`); setModal(null); load(); } catch (err) { alert(err.message); } finally { setSaving(false); }
@@ -210,152 +417,51 @@ export default function UsersPage() {
     <div className="space-y-6">
       <SkeletonPageHeader />
       <SkeletonSearchBar />
-      <SkeletonTable rows={8} cols={9} />
+      <SkeletonTable rows={8} cols={7} />
     </div>
   );
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Users</h1>
-          <p className="text-gray-500 text-sm mt-1">{filtered.length} of {users.length} users</p>
+          <p className="text-gray-500 text-sm mt-1">{users.length} total users</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> New User
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-500 font-medium">Type:</span>
-          {['all', ...userTypes].map(t => (
-            <button key={t} onClick={() => { setTypeFilter(t); setPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${typeFilter === t ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-              {t.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-500 font-medium">Role:</span>
-          {['all', ...roles].map(r => (
-            <button key={r} onClick={() => { setRoleFilter(r); setPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${roleFilter === r ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
-              {r.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
-          <div className="flex">
-            {[{ key: 'all', label: 'All', count: preStatusFiltered.length }, { key: 'active', label: 'Active', count: preStatusFiltered.filter(u => u.is_active).length }, { key: 'inactive', label: 'Inactive', count: preStatusFiltered.filter(u => !u.is_active).length }].map(tab => (
-              <button key={tab.key} onClick={() => { setStatusFilter(tab.key); setPage(1); }}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${statusFilter === tab.key ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
-                {tab.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${statusFilter === tab.key ? 'bg-brand-100 dark:bg-brand-900/30 text-brand-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{tab.count}</span>
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
-            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
-              {[5, 10, 15, 20, 25].map(n => (
-                <button key={n} onClick={() => { setLimit(n); setPage(1); }}
-                  className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input className="pl-8 pr-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44" placeholder="Search users…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
-            </div>
-          </div>
-        </div>
-        <Table>
-          <thead>
-            <tr>
-              <SortTh col="name">Name</SortTh>
-              <SortTh col="email">Email</SortTh>
-              <SortTh col="user_type">Type</SortTh>
-              <SortTh col="scheme">Scheme</SortTh>
-              <SortTh col="role">Role</SortTh>
-              <SortTh col="shareholder_name">Manager</SortTh>
-              <SortTh col="is_active">Status</SortTh>
-              <SortTh col="created_at">Joined</SortTh>
-              <Th>Actions</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {!sorted.length && <EmptyRow cols={9} message="No users found" />}
-            {paged.map(u => (
-              <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                <Td className="font-medium text-gray-900 dark:text-white">{u.name}</Td>
-                <Td className="text-gray-500">{u.email}</Td>
-                <Td><span className={u.user_type === 'shareholder' ? 'badge-blue' : 'badge-gray'}>{u.user_type}</span></Td>
-                <Td>
-                  {u.scheme
-                    ? <div className="flex flex-wrap gap-1">{u.scheme.split(',').map(s => s.trim()).filter(Boolean).map(s => <span key={s} className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{s.replace(/_/g, ' ')}</span>)}</div>
-                    : <span className="text-gray-400 text-xs">—</span>}
-                </Td>
-                <Td><span className={u.role === 'super_admin' ? 'badge-red' : u.role === 'admin' ? 'badge-blue' : 'badge-gray'}>{u.role.replace('_', ' ')}</span></Td>
-                <Td className="text-gray-500 text-xs">{u.shareholder_name || '—'}</Td>
-                <Td><span className={u.is_active ? 'badge-green' : 'badge-red'}>{u.is_active ? 'Active' : 'Inactive'}</span></Td>
-                <Td className="text-gray-500 text-xs">{fmt.date(u.created_at)}</Td>
-                <Td>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => openEdit(u)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={15} /></button>
-                    <button onClick={() => openReset(u)} className="p-1 text-gray-400 hover:text-orange-600" title="Reset password"><Key size={15} /></button>
-                    <button onClick={() => openToggle(u)} className="p-1 text-gray-400 hover:text-blue-600" title={u.is_active ? 'Deactivate' : 'Activate'}>
-                      {u.is_active ? <UserX size={15} /> : <UserCheck size={15} />}
-                    </button>
-                    <button onClick={() => openDelete(u)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={15} /></button>
-                  </div>
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        {totalPages > 1 && (
-          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
-            {(() => {
-              const range = [];
-              for (let i = 1; i <= totalPages; i++) {
-                if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
-              }
-              const withEllipsis = [];
-              let prev = null;
-              for (const p of range) {
-                if (prev !== null && p - prev > 1) withEllipsis.push('...' + p);
-                withEllipsis.push(p);
-                prev = p;
-              }
-              return (
-                <div className="flex items-center gap-1.5">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
-                    <ChevronLeft size={14} />
-                  </button>
-                  {withEllipsis.map((p, i) =>
-                    typeof p === 'string'
-                      ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
-                      : <button key={p} onClick={() => setPage(p)}
-                          className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
-                          {p}
-                        </button>
-                  )}
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                    className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
+        {isSuperAdmin && (
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> New User
+          </button>
         )}
       </div>
+
+      {/* Main tabs */}
+      <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
+        {TABS.map(t => {
+          const count = users.filter(u => tabFilter(u, t.key)).length;
+          return (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${activeTab === t.key ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}>
+              {t.label}
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === t.key ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-700 dark:text-brand-400' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table for active tab */}
+      <UserTable
+        key={activeTab}
+        users={tabUsers}
+        tab={activeTab}
+        openEdit={openEdit}
+        openReset={openReset}
+        openToggle={openToggle}
+        openDelete={openDelete}
+        openSchemes={openSchemes}
+        isSuperAdmin={isSuperAdmin}
+      />
 
       <Modal open={modal === 'create'} onClose={() => setModal(null)} title="Create User">
         <UserForm form={form} setForm={setForm} onSubmit={submitCreate} onCancel={() => setModal(null)} isCreate saving={saving} error={error} userTypes={userTypes} roles={roles} schemes={schemes} />
@@ -377,6 +483,30 @@ export default function UsersPage() {
           </div>
         </form>
       </Modal>
+      <Modal open={modal === 'schemes'} onClose={() => setModal(null)} title={`Scheme Status — ${selected?.name}`} size="sm">
+        <div className="space-y-3">
+          {schemeLoading ? (
+            <p className="text-sm text-gray-400 text-center py-4">Loading...</p>
+          ) : schemeStatuses.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No schemes assigned.</p>
+          ) : (
+            schemeStatuses.map(s => (
+              <div key={s.scheme} className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{s.scheme.replace(/_/g, ' ')}</span>
+                <button
+                  onClick={() => toggleScheme(s.scheme, s.is_active)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${s.is_active ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${s.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            ))
+          )}
+          <div className="pt-1 flex justify-end">
+            <button onClick={() => setModal(null)} className="btn-secondary">Close</button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={modal === 'delete'} onClose={() => setModal(null)} title="Delete User">
         <div className="space-y-4">
           <p className="text-gray-700 dark:text-gray-300">Are you sure you want to delete <strong>{selected?.name}</strong>? This action cannot be undone.</p>
@@ -386,6 +516,13 @@ export default function UsersPage() {
           </div>
         </div>
       </Modal>
+
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-xl shadow-lg text-sm font-medium">
+          <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

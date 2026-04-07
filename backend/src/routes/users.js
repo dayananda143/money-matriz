@@ -9,8 +9,11 @@ query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS proof_type VARCHAR(50)`).catch
 query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS proof VARCHAR(255)`).catch(console.error);
 query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS terminated_at DATE`).catch(console.error);
 
-// GET all users (admin/super_admin)
-router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+// GET all users (admin/super_admin/shareholder)
+router.get('/', authenticate, async (req, res) => {
+  const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+  const isShareholder = req.user.user_type === 'shareholder';
+  if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
   try {
     const { type, role } = req.query;
     let sql = `SELECT u.id, u.name, u.email, u.user_type, u.role, u.phone, u.scheme, u.proof_type, u.proof, u.is_active, u.terminated_at, u.created_at,

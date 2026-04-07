@@ -7,7 +7,8 @@ import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonTable } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
 
-const EMPTY = { symbol: '', name: '', sector: '', current_price: '', is_active: true };
+const EMPTY = { symbol: '', name: '', sector: '', current_price: '', is_active: true, market_cap_category: '' };
+const CAP_CATEGORIES = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap'];
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const TRADE_EMPTY = { user_id: '', quantity: '', price: '', notes: '', executed_at: today() };
@@ -19,6 +20,7 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
   const [notes, setNotes] = useState('');
   const [selections, setSelections] = useState({});
   const [tab, setTab] = useState('all');
+  const [schemeFilter, setSchemeFilter] = useState('all');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,13 +31,14 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
     setNotes('');
     setSelections({});
     setTab('all');
+    setSchemeFilter('all');
     setError('');
     api.get('/users').then(r => setUsers(r.data.filter(u => u.is_active))).catch(console.error);
   }, [open, stock]);
 
   const toggle = (id) => setSelections(s => {
     const next = { ...s };
-    if (next[id]) delete next[id];
+    if (id in next) delete next[id];
     else next[id] = '';
     return next;
   });
@@ -43,7 +46,12 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
   const setAmount = (id, val) => setSelections(s => ({ ...s, [id]: val }));
 
   const tabs = ['all', ...([...new Set(users.map(u => u.user_type))].sort())];
-  const visibleUsers = tab === 'all' ? users : users.filter(u => u.user_type === tab);
+  const clientSchemes = [...new Set(
+    users.filter(u => u.user_type === 'client')
+      .flatMap(u => (u.scheme || '').split(',').map(s => s.trim()).filter(Boolean))
+  )].sort();
+  const visibleUsers = (tab === 'all' ? users : users.filter(u => u.user_type === tab))
+    .filter(u => tab !== 'client' || schemeFilter === 'all' || (u.scheme || '').split(',').map(s => s.trim()).includes(schemeFilter));
   const selected = Object.entries(selections);
   const p = parseFloat(price) || 0;
   const totalValue = selected.reduce((s, [, a]) => s + (parseFloat(a) || 0), 0);
@@ -87,21 +95,31 @@ function AddInvestmentModal({ stock, open, onClose, onDone, groupId }) {
           </div>
           <div>
             <label className="label">Buy Date</label>
-            <input type="date" className="input [color-scheme:light] dark:[color-scheme:dark]" value={executedAt}
+            <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={executedAt}
               onChange={e => setExecutedAt(e.target.value)} required />
           </div>
         </div>
 
         <div>
           <label className="label">Investors & Amounts</label>
-          <div className="flex gap-1 mb-2">
+          <div className="flex gap-1 mb-2 flex-wrap">
             {tabs.map(t => (
-              <button key={t} type="button" onClick={() => setTab(t)}
+              <button key={t} type="button" onClick={() => { setTab(t); setSchemeFilter('all'); }}
                 className={`px-3 py-1 rounded-full text-xs font-medium capitalize transition-colors ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                 {t === 'all' ? `All (${users.length})` : `${t} (${users.filter(u => u.user_type === t).length})`}
               </button>
             ))}
           </div>
+          {tab === 'client' && clientSchemes.length > 0 && (
+            <div className="flex gap-1 mb-2 flex-wrap">
+              {['all', ...clientSchemes].map(s => (
+                <button key={s} type="button" onClick={() => setSchemeFilter(s)}
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${schemeFilter === s ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 ring-1 ring-brand-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                  {s === 'all' ? 'All Schemes' : s.replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800 max-h-52 overflow-y-auto">
             {visibleUsers.length === 0 && <div className="px-3 py-4 text-center text-sm text-gray-400">No users in this category</div>}
             {visibleUsers.map(u => {
@@ -163,7 +181,7 @@ function EditHoldingModal({ stock, holder, open, onClose, onDone }) {
   useEffect(() => {
     if (!open || !holder) return;
     const d = holder.first_buy_date ? holder.first_buy_date.split('T')[0] : '';
-    setForm({ quantity: holder.quantity, avg_buy_price: holder.avg_buy_price, buy_date: d });
+    setForm({ quantity: parseFloat(holder.quantity).toFixed(2), avg_buy_price: parseFloat(holder.avg_buy_price).toFixed(2), buy_date: d });
     setError('');
   }, [open, holder]);
 
@@ -201,7 +219,7 @@ function EditHoldingModal({ stock, holder, open, onClose, onDone }) {
           </div>
           <div className="col-span-2">
             <label className="label">Buy Date</label>
-            <input type="date" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.buy_date}
+            <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.buy_date}
               onChange={e => setForm(f => ({ ...f, buy_date: e.target.value }))} />
           </div>
         </div>
@@ -281,7 +299,7 @@ function SellModal({ stock, holder, open, onClose, onDone, groupId }) {
           </div>
           <div>
             <label className="label">Sell Date</label>
-            <input type="date" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
+            <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
               onChange={e => setForm(f => ({ ...f, executed_at: e.target.value }))} required />
           </div>
           <div>
@@ -320,17 +338,63 @@ function SellModal({ stock, holder, open, onClose, onDone, groupId }) {
 
 function SellAllModal({ stock, holders, open, onClose, onDone, groupId }) {
   const activeHolders = holders.filter(h => h.status === 'active' && parseFloat(h.quantity) > 0);
+  const isEditMode = activeHolders.length === 0 && holders.length > 0;
+
   const [form, setForm] = useState({ price: '', executed_at: '', brokerage: '' });
+  const [sellTxns, setSellTxns] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open || !stock) return;
-    setForm({ price: stock.current_price ? parseFloat(stock.current_price).toFixed(2) : '', brokerage: '', executed_at: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
     setError('');
-  }, [open, stock]);
+    if (isEditMode) {
+      // Load existing sell transactions to pre-fill the form
+      const url = groupId ? `/stocks/${stock.id}/sell-transactions?group_id=${groupId}` : `/stocks/${stock.id}/sell-transactions`;
+      api.get(url).then(r => {
+        setSellTxns(r.data);
+        if (r.data.length > 0) {
+          const first = r.data[0];
+          const d = new Date(first.executed_at);
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          setForm({
+            price: parseFloat(first.price).toFixed(2),
+            executed_at: dateStr,
+            brokerage: '',
+          });
+        }
+      }).catch(console.error);
+    } else {
+      setSellTxns([]);
+      setForm({ price: stock.current_price ? parseFloat(stock.current_price).toFixed(2) : '', brokerage: '', executed_at: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })() });
+    }
+  }, [open, stock, isEditMode]);
 
-  const submit = async (e) => {
+  const submitEdit = async (e) => {
+    e.preventDefault();
+    setError(''); setSaving(true);
+    try {
+      const price = parseFloat(form.price);
+      const totalBrokerage = form.brokerage ? parseFloat(form.brokerage) : null;
+      const totalSaleValue = sellTxns.reduce((s, t) => s + parseFloat(t.quantity) * price, 0);
+      await Promise.all(sellTxns.map(t => {
+        const brokerage = totalBrokerage !== null && totalSaleValue > 0
+          ? totalBrokerage * ((parseFloat(t.quantity) * price) / totalSaleValue)
+          : parseFloat(t.brokerage || 0);
+        return api.put(`/stocks/${stock.id}/transactions/${t.id}`, {
+          quantity: parseFloat(t.quantity),
+          price,
+          notes: t.notes,
+          executed_at: form.executed_at || null,
+          brokerage,
+        });
+      }));
+      onDone();
+      onClose();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const submitSell = async (e) => {
     e.preventDefault();
     setError(''); setSaving(true);
     try {
@@ -358,12 +422,53 @@ function SellAllModal({ stock, holders, open, onClose, onDone, groupId }) {
 
   const totalShares = activeHolders.reduce((s, h) => s + parseFloat(h.quantity), 0);
   const totalValue = form.price ? totalShares * parseFloat(form.price) : 0;
+  const totalSoldShares = sellTxns.reduce((s, t) => s + parseFloat(t.quantity), 0);
+  const totalEditValue = form.price ? totalSoldShares * parseFloat(form.price) : 0;
 
   return (
-    <Modal open={open} onClose={onClose} title={stock ? `Sell All Shares — ${stock.symbol}` : ''}>
-      <form onSubmit={submit} className="space-y-4">
+    <Modal open={open} onClose={onClose} title={stock ? (isEditMode ? `Edit Sell — ${stock.symbol}` : `Sell All Shares — ${stock.symbol}`) : ''}>
+      <form onSubmit={isEditMode ? submitEdit : submitSell} className="space-y-4">
         {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
-        {activeHolders.length === 0 ? (
+        {isEditMode ? (
+          <>
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300 space-y-1">
+              <div className="font-medium">Editing existing sell transactions</div>
+              <div>Investors: <strong>{sellTxns.length}</strong> · Total shares: <strong>{fmt.number(totalSoldShares, 2)}</strong></div>
+              {totalEditValue > 0 && <div>New total value: <strong>{fmt.currency(totalEditValue)}</strong></div>}
+            </div>
+            <div className="divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-xs">
+              {sellTxns.map(t => (
+                <div key={t.id} className="flex justify-between items-center px-3 py-2 text-gray-600 dark:text-gray-400">
+                  <span className="font-medium text-gray-800 dark:text-gray-200">{t.user_name}</span>
+                  <span>{fmt.number(t.quantity, 2)} shares · current ₹{parseFloat(t.price).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">New Sell Price (₹)</label>
+                <input type="number" className="input" min="0.01" step="0.01" value={form.price}
+                  onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required />
+              </div>
+              <div>
+                <label className="label">New Sell Date</label>
+                <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
+                  onChange={e => setForm(f => ({ ...f, executed_at: e.target.value }))} required />
+              </div>
+              <div className="col-span-2">
+                <label className="label">Total Brokerage (₹) <span className="text-gray-400 font-normal">— leave blank to keep existing</span></label>
+                <input type="number" className="input" min="0" step="any" placeholder="Keep existing" value={form.brokerage}
+                  onChange={e => setForm(f => ({ ...f, brokerage: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={saving || sellTxns.length === 0} className="btn-primary flex-1">
+                {saving ? 'Saving...' : `Update ${sellTxns.length} sell transaction${sellTxns.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        ) : activeHolders.length === 0 ? (
           <p className="text-center py-6 text-gray-400">No active investors to sell.</p>
         ) : (
           <>
@@ -380,23 +485,24 @@ function SellAllModal({ stock, holders, open, onClose, onDone, groupId }) {
               </div>
               <div>
                 <label className="label">Sell Date</label>
-                <input type="date" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
+                <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
                   onChange={e => setForm(f => ({ ...f, executed_at: e.target.value }))} required />
               </div>
               <div className="col-span-2">
-                <label className="label">Total Brokerage (₹) <span className="text-gray-400 font-normal">— split proportionally across investors</span></label>
+                <label className="label">Total Brokerage (₹) <span className="text-gray-400 font-normal">— split proportionally among all investors</span></label>
                 <input type="number" className="input" min="0" step="any" placeholder="0" value={form.brokerage}
                   onChange={e => setForm(f => ({ ...f, brokerage: e.target.value }))} />
               </div>
             </div>
-            {form.brokerage && parseFloat(form.brokerage) > 0 && form.price && activeHolders.length > 0 && (
+            {form.brokerage && parseFloat(form.brokerage) > 0 && form.price && (
               <div className="space-y-1">
                 {activeHolders.map(h => {
                   const hVal = parseFloat(h.quantity) * parseFloat(form.price);
-                  const hBrok = totalValue > 0 ? parseFloat(form.brokerage) * (hVal / totalValue) : 0;
+                  const allTotal = activeHolders.reduce((s, x) => s + parseFloat(x.quantity) * parseFloat(form.price), 0);
+                  const hBrok = allTotal > 0 ? parseFloat(form.brokerage) * (hVal / allTotal) : 0;
                   return (
                     <div key={h.id} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                      <span>{h.name}</span>
+                      <span>{h.name} <span className="text-gray-400">({h.user_type})</span></span>
                       <span>Brokerage: {fmt.currency(hBrok)}</span>
                     </div>
                   );
@@ -551,6 +657,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [deleteTxnSaving, setDeleteTxnSaving] = useState(false);
   const [deleteGroupId, setDeleteGroupId] = useState(null);
   const [deleteBrokerageId, setDeleteBrokerageId] = useState(null);
+  const [editBrokerageId, setEditBrokerageId] = useState(null);
+  const [editBrokerageAmount, setEditBrokerageAmount] = useState('');
   const [txnPatId, setTxnPatId] = useState(null);
   const [patModalTab, setPatModalTab] = useState('pat');
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -588,6 +696,24 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
       else setPnlSettled(value);
       const label = field === 'investment_settled' ? 'Investment' : 'P/L';
       if (showToast) showToast(`${label} marked as ${value ? 'settled' : 'unsettled'}`);
+    } catch (err) { alert(err.message); }
+  };
+
+  const toggleInvestorSettled = async (txnId, field, value) => {
+    try {
+      await api.patch(`/stocks/${stock.id}/transactions/${txnId}/settled`, { [field]: value });
+      setInvestments(prev => prev.map(h => h.txn_id === txnId ? { ...h, [field]: value } : h));
+    } catch (err) { alert(err.message); }
+  };
+
+  const bulkToggleSettled = async (field, value) => {
+    try {
+      await Promise.all(
+        displayed.map(h => api.patch(`/stocks/${stock.id}/transactions/${h.txn_id}/settled`, { [field]: value }))
+      );
+      setInvestments(prev => prev.map(h =>
+        displayed.some(d => d.txn_id === h.txn_id) ? { ...h, [field]: value } : h
+      ));
     } catch (err) { alert(err.message); }
   };
 
@@ -643,6 +769,17 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     try {
       await api.delete(`/stocks/${stock.id}/brokerage/${tid}`);
       setDeleteBrokerageId(null);
+      loadBrokerage();
+    } catch (err) { alert(err.message); }
+  };
+
+  const saveBrokerageEdit = async (tid) => {
+    const amt = parseFloat(editBrokerageAmount);
+    if (!amt || amt <= 0) return;
+    try {
+      await api.put(`/stocks/${stock.id}/brokerage/${tid}`, { amount: amt });
+      setEditBrokerageId(null);
+      setEditBrokerageAmount('');
       loadBrokerage();
     } catch (err) { alert(err.message); }
   };
@@ -717,6 +854,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     setNewBrokerage('');
     setGroups([]);
     setActiveGroupId(null);
+    setFilterStatus('all');
     loadHolders();
     loadBrokerage(null);
     loadGroups();
@@ -748,19 +886,19 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     : null;
   const allExited = activeGroupId
     ? activeInvRows.length > 0 && activeInvRows.every(h => h.status === 'exited')
-    : groupHolders.length > 0 && groupHolders.every(h => h.status === 'exited');
+    : investments.length > 0 && investments.every(h => h.status === 'exited');
   const totalInvested = activeGroupId
     ? activeInvRows.reduce((s, h) => s + parseFloat(h.invested_amount), 0)
-    : groupHolders.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+    : investments.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
   const totalValue = activeGroupId
     ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0)
-    : groupHolders.reduce((s, h) => s + parseFloat(h.current_value), 0);
+    : investments.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
   const totalSoldPnl = activeGroupId
     ? activeInvRows.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0)
-    : groupHolders.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
+    : investments.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
   const totalBuyAmount = activeGroupId
     ? activeInvRows.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0)
-    : groupHolders.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0);
+    : investments.reduce((s, h) => s + parseFloat(h.total_buy_amount || 0), 0);
   const soldPnlPct = totalBuyAmount > 0 ? (totalSoldPnl / totalBuyAmount) * 100 : 0;
   const stockBrokerage = brokerageList.reduce((s, t) => s + parseFloat(t.amount), 0);
   const { totalPAT, totalTax } = (() => {
@@ -789,7 +927,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     if (key === 'name') return h.name.toLowerCase();
     if (key === 'user_type') return h.user_type;
     if (key === 'status') return h.status;
-    if (key === 'quantity') return parseFloat(h.status === 'exited' ? h.total_bought_quantity : h.quantity);
+    if (key === 'quantity') return parseFloat(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity));
     if (key === 'avg_buy_price') return parseFloat(h.avg_buy_price);
     if (key === 'invested_amount') return parseFloat(h.invested_amount);
     if (key === 'current_value') return parseFloat(h.current_value);
@@ -861,18 +999,6 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
               </button>
             </div>
             {activeGroupId && <div className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex-wrap">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={investmentSettled}
-                  onChange={e => toggleSettled('investment_settled', e.target.checked)}
-                  className="w-4 h-4 rounded accent-brand-600" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Investment Settled</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={pnlSettled}
-                  onChange={e => toggleSettled('pnl_settled', e.target.checked)}
-                  className="w-4 h-4 rounded accent-brand-600" />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">P/L Settled</span>
-              </label>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">Stockholder</span>
                 <select
@@ -887,7 +1013,13 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-1"
                 >
                   <option value="">— None —</option>
-                  {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.user_type})</option>)}
+                  {allUsers
+                    .filter(u =>
+                      u.user_type === 'shareholder' ||
+                      u.user_type === 'employee' ||
+                      (u.user_type === 'client' && (u.scheme || '').split(',').map(s => s.trim()).includes('portfolio'))
+                    )
+                    .map(u => <option key={u.id} value={u.id}>{u.name} ({u.user_type})</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-3 ml-auto flex-wrap">
@@ -902,9 +1034,26 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 <div className="flex items-center gap-2 flex-wrap">
                   {brokerageList.map((t, i) => (
                     <div key={t.id} className="flex items-center gap-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded px-2 py-0.5">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">Txn {i + 1}:</span>
-                      <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{fmt.currency(parseFloat(t.amount))}</span>
-                      <button onClick={() => setDeleteBrokerageId(t.id)} className="text-gray-300 hover:text-red-500 ml-0.5"><X size={11} /></button>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{t.label ? t.label : `Txn ${i + 1}`}:</span>
+                      {editBrokerageId === t.id ? (
+                        <>
+                          <input
+                            type="number" min="0.01" step="any" autoFocus
+                            value={editBrokerageAmount}
+                            onChange={e => setEditBrokerageAmount(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveBrokerageEdit(t.id); if (e.key === 'Escape') { setEditBrokerageId(null); setEditBrokerageAmount(''); } }}
+                            className="w-20 px-1 py-0 text-xs rounded border border-brand-400 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none"
+                          />
+                          <button onClick={() => saveBrokerageEdit(t.id)} className="text-brand-600 hover:text-brand-700"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+                          <button onClick={() => { setEditBrokerageId(null); setEditBrokerageAmount(''); }} className="text-gray-300 hover:text-gray-500"><X size={11} /></button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{fmt.currency(parseFloat(t.amount))}</span>
+                          <button onClick={() => { setEditBrokerageId(t.id); setEditBrokerageAmount(parseFloat(t.amount).toFixed(2)); }} className="text-gray-300 hover:text-brand-500 ml-0.5"><Pencil size={10} /></button>
+                          <button onClick={() => setDeleteBrokerageId(t.id)} className="text-gray-300 hover:text-red-500"><X size={11} /></button>
+                        </>
+                      )}
                     </div>
                   ))}
                   <div className="flex items-center gap-1">
@@ -959,7 +1108,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             </div>
             {activeGroupId && <div className="flex gap-2">
               <button onClick={() => setSellAllOpen(true)} className="text-xs px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded flex items-center gap-1">
-                <TrendingDown size={12} /> Sell All Shares
+                <TrendingDown size={12} /> {allExited ? 'Edit Sell' : 'Sell All Shares'}
               </button>
               <button onClick={() => setAddOpen(true)} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded flex items-center gap-1">
                 <ShoppingCart size={12} /> Add Investment
@@ -1002,19 +1151,49 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     <SortTh label="P&L" col="pnl" />
                     <SortTh label="P&L %" col="pnl_pct" />
                     <Th>PAT</Th>
-                    <Th></Th>
+                    <Th>
+                      <div className="flex items-center gap-1.5">
+                        <input type="checkbox"
+                          checked={displayed.length > 0 && displayed.every(h => h.investment_settled)}
+                          ref={el => { if (el) el.indeterminate = displayed.some(h => h.investment_settled) && !displayed.every(h => h.investment_settled); }}
+                          onChange={e => bulkToggleSettled('investment_settled', e.target.checked)}
+                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer"
+                          title="Select all investment settled"
+                        />
+                        Inv. Settled
+                      </div>
+                    </Th>
+                    <Th>
+                      <div className="flex items-center gap-1.5">
+                        <input type="checkbox"
+                          checked={displayed.length > 0 && displayed.every(h => h.pnl_settled)}
+                          ref={el => { if (el) el.indeterminate = displayed.some(h => h.pnl_settled) && !displayed.every(h => h.pnl_settled); }}
+                          onChange={e => bulkToggleSettled('pnl_settled', e.target.checked)}
+                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer"
+                          title="Select all P&L settled"
+                        />
+                        P&amp;L Settled
+                      </div>
+                    </Th>
+                    {!activeGroupId && <Th>Transaction</Th>}
                   </tr>
                 </thead>
                 <tbody>
                   {(() => {
-                    const totQty = displayed.reduce((s, h) => s + parseFloat(h.status === 'exited' ? h.total_bought_quantity : h.quantity), 0);
+                    const totQty = displayed.reduce((s, h) => s + parseFloat(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity)), 0);
                     const totInvested = displayed.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
                     const totCurrent = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
                     const totPnl = displayed.reduce((s, h) => s + parseFloat(h.status === 'active' ? h.unrealized_pnl : h.realized_pnl), 0);
+                    const allInvSettled = displayed.length > 0 && displayed.every(h => h.investment_settled);
+                    const allPnlSettled = displayed.length > 0 && displayed.every(h => h.pnl_settled);
+                    const invSettledCount = displayed.filter(h => h.investment_settled).length;
+                    const pnlSettledCount = displayed.filter(h => h.pnl_settled).length;
                     if (displayed.length < 2) return null;
                     return (
                       <tr className="bg-gray-50 dark:bg-gray-800/60 font-semibold text-xs border-t-2 border-gray-200 dark:border-gray-600">
-                        <Td colSpan={3} className="text-gray-500 dark:text-gray-400">Total ({displayed.length})</Td>
+                        <Td className="text-gray-500 dark:text-gray-400">Total ({displayed.length})</Td>
+                        <Td></Td>
+                        <Td></Td>
                         <Td className="font-bold text-gray-900 dark:text-white">{fmt.number(totQty, 2)}</Td>
                         <Td>—</Td>
                         <Td>—</Td>
@@ -1022,7 +1201,19 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                         <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totInvested)}</Td>
                         <Td className="font-bold text-gray-900 dark:text-white">{totCurrent > 0 ? fmt.currency(totCurrent) : '—'}</Td>
                         <Td><span className={pnlColor(totPnl)}>{pnlSign(totPnl)}{fmt.currency(totPnl)}</span></Td>
-                        <Td colSpan={3}><span className={pnlColor(totPnl / totInvested * 100)}>{pnlSign(totPnl / totInvested * 100)}{fmt.percent(Math.abs(totPnl / totInvested * 100))}</span></Td>
+                        <Td><span className={pnlColor(totPnl / totInvested * 100)}>{pnlSign(totPnl / totInvested * 100)}{fmt.percent(Math.abs(totPnl / totInvested * 100))}</span></Td>
+                        <Td>{totalPAT > 0 ? <span className="text-green-600 dark:text-green-400">{fmt.currency(totalPAT)}</span> : '—'}</Td>
+                        <Td>
+                          {allInvSettled
+                            ? <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium">✓ All</span>
+                            : <span className="text-xs text-gray-400">{invSettledCount}/{displayed.length}</span>}
+                        </Td>
+                        <Td>
+                          {allPnlSettled
+                            ? <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 font-medium">✓ All</span>
+                            : <span className="text-xs text-gray-400">{pnlSettledCount}/{displayed.length}</span>}
+                        </Td>
+                        {!activeGroupId && <Td></Td>}
                       </tr>
                     );
                   })()}
@@ -1073,7 +1264,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       </Td>
                       <Td className={dim}><span className={h.user_type === 'shareholder' ? 'badge-blue' : 'badge-gray'}>{h.user_type}</span></Td>
                       <Td className={dim}><span className={h.status === 'active' ? 'badge-green' : 'badge-red'}>{h.status}</span></Td>
-                      <Td className={`font-medium ${dim}`}>{fmt.number(h.status === 'exited' ? h.total_bought_quantity : h.quantity, 2)}</Td>
+                      <Td className={`font-medium ${dim}`}>{fmt.number(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity), 2)}</Td>
                       <Td className={`text-xs text-gray-500 whitespace-nowrap ${dim}`}>{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>
                       <Td className={dim}>{fmt.currency(h.avg_buy_price)}</Td>
                       <Td className={dim}>{h.avg_sell_price ? fmt.currency(h.avg_sell_price) : '—'}</Td>
@@ -1116,8 +1307,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <Td className={dim}>
                         {h.status === 'exited' ? (() => {
                           const pnl = parseFloat(h.realized_pnl || 0);
-                          const totalExitedPnl = groupHolders.filter(x => x.status === 'exited').reduce((s, x) => s + parseFloat(x.realized_pnl || 0), 0);
-                          const groupBrokerageShare = totalExitedPnl > 0 ? stockBrokerage * (pnl / totalExitedPnl) : 0;
+                          const allExitedPnl = groupHolders.filter(x => x.status === 'exited').reduce((s, x) => s + parseFloat(x.realized_pnl || 0), 0);
+                          const groupBrokerageShare = allExitedPnl > 0 ? stockBrokerage * (pnl / allExitedPnl) : 0;
                           const holderBrokerage = groupBrokerageShare + parseFloat(h.total_sell_brokerage || 0);
                           const netProfit = pnl - holderBrokerage;
                           if (netProfit <= 0) return <span className="text-gray-400">—</span>;
@@ -1135,17 +1326,27 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                           );
                         })() : <span className="text-gray-400">—</span> }
                       </Td>
-                      <Td className={dim}>
-                        <select
-                          value={h.group_id || ''}
-                          onChange={e => assignHolderGroup(h.id, e.target.value || null)}
-                          className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1 py-0.5"
-                          title="Assign to transaction"
-                        >
-                          <option value="">—</option>
-                          {groups.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
-                        </select>
+                      <Td>
+                        <input type="checkbox"
+                          checked={!!h.investment_settled}
+                          onChange={e => { e.stopPropagation(); toggleInvestorSettled(h.txn_id, 'investment_settled', e.target.checked); }}
+                          onClick={e => e.stopPropagation()}
+                          className="w-4 h-4 rounded accent-brand-600" />
                       </Td>
+                      <Td>
+                        <input type="checkbox"
+                          checked={!!h.pnl_settled}
+                          onChange={e => { e.stopPropagation(); toggleInvestorSettled(h.txn_id, 'pnl_settled', e.target.checked); }}
+                          onClick={e => e.stopPropagation()}
+                          className="w-4 h-4 rounded accent-brand-600" />
+                      </Td>
+                      {!activeGroupId && (
+                        <Td className={dim}>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {groups.find(g => g.id === h.group_id)?.label || '—'}
+                          </span>
+                        </Td>
+                      )}
                     </tr>
                   ); })}
 
@@ -1447,7 +1648,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                         </div>
                         <div>
                           <label className="text-xs text-gray-500 mb-1 block">Date</label>
-                          <input type="date" className="input text-sm py-1" value={editTxnForm.executed_at}
+                          <input type="date" lang="en-US" className="input text-sm py-1" value={editTxnForm.executed_at}
                             onChange={e => setEditTxnForm(f => ({ ...f, executed_at: e.target.value }))} />
                         </div>
                         <div>
@@ -1597,7 +1798,7 @@ export default function StocksPage() {
   const openCreate = () => { setForm(EMPTY); setError(''); setModal('create'); };
   const openEdit = (s) => {
     setSelected(s);
-    setForm({ symbol: s.symbol, name: s.name, sector: s.sector || '', current_price: s.current_price, is_active: s.is_active });
+    setForm({ symbol: s.symbol, name: s.name, sector: s.sector || '', current_price: s.current_price, is_active: s.is_active, market_cap_category: s.market_cap_category || '' });
     setError('');
     setModal('edit');
   };
@@ -1605,9 +1806,14 @@ export default function StocksPage() {
   const submit = async (e) => {
     e.preventDefault(); setError(''); setSaving(true);
     try {
-      if (modal === 'create') await api.post('/stocks', form);
-      else await api.put(`/stocks/${selected.id}`, { ...form, current_price: parseFloat(form.current_price) });
-      setModal(null); load();
+      if (modal === 'create') {
+        const { data } = await api.post('/stocks', form);
+        setModal(null);
+        navigate(`/admin/stocks/${data.id}`);
+      } else {
+        await api.put(`/stocks/${selected.id}`, { ...form, current_price: parseFloat(form.current_price) });
+        setModal(null); load();
+      }
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
@@ -1665,8 +1871,10 @@ export default function StocksPage() {
 
   const toggleTableSort = (key) => setTableSort(s => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }));
 
+  const isEffectivelyActive = (s) => s.is_active || s.has_active_investors;
+
   const filteredStocks = stocks
-    .filter(s => stockFilter === 'all' || (stockFilter === 'active' ? s.is_active : !s.is_active))
+    .filter(s => stockFilter === 'all' || (stockFilter === 'active' ? isEffectivelyActive(s) : !isEffectivelyActive(s)))
     .filter(s => !stockSearch.trim() || s.symbol.toLowerCase().includes(stockSearch.toLowerCase()) || s.name.toLowerCase().includes(stockSearch.toLowerCase()));
 
 
@@ -1711,7 +1919,7 @@ export default function StocksPage() {
       <div className="card">
         <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
           <div className="flex">
-            {[{ key: 'all', label: 'All', count: stocks.length }, { key: 'active', label: 'Active', count: stocks.filter(s => s.is_active).length }, { key: 'inactive', label: 'Inactive', count: stocks.filter(s => !s.is_active).length }].map(tab => (
+            {[{ key: 'all', label: 'All', count: stocks.length }, { key: 'active', label: 'Active', count: stocks.filter(s => s.is_active || s.has_active_investors).length }, { key: 'inactive', label: 'Inactive', count: stocks.filter(s => !s.is_active && !s.has_active_investors).length }].map(tab => (
               <button key={tab.key} onClick={() => { setStockFilter(tab.key); setStockPage(1); }}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${stockFilter === tab.key ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
                 {tab.label}
@@ -1793,11 +2001,14 @@ export default function StocksPage() {
                       </div>
                     </Td>
                     <Td className="font-medium text-gray-900 dark:text-white">{s.name}</Td>
-                    <Td><span className="badge-blue">{s.sector || '—'}</span></Td>
+                    <Td>
+                      <span className="badge-blue">{s.sector || '—'}</span>
+                      {s.market_cap_category && <span className="badge-purple ml-1">{s.market_cap_category}</span>}
+                    </Td>
                     <Td className="font-medium">{fmt.currency(s.current_price)}</Td>
                     <Td className="text-xs text-gray-500 whitespace-nowrap">{s.common_buy_price ? fmt.currency(s.common_buy_price) : '—'}</Td>
-                    <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.last_sell_date)}</Td>
-                    <Td><span className={s.is_active ? 'badge-green' : 'badge-red'}>{s.is_active ? 'Active' : 'Inactive'}</span></Td>
+                    <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>
+                    <Td><span className={(s.is_active || s.has_active_investors) ? 'badge-green' : 'badge-red'}>{(s.is_active || s.has_active_investors) ? 'Active' : 'Inactive'}</span></Td>
                     <Td className="text-gray-500 text-xs">{s.last_updated ? fmt.datetime(s.last_updated) : '—'}</Td>
                   </tr>
                   {msg && (
@@ -1868,6 +2079,13 @@ export default function StocksPage() {
             <div className="col-span-2">
               <label className="label">Sector (optional)</label>
               <input className="input" placeholder="e.g. Technology, Finance..." value={form.sector} onChange={e => setForm(f => ({ ...f, sector: e.target.value }))} />
+            </div>
+            <div className="col-span-2">
+              <label className="label">Market Cap Category (optional)</label>
+              <select className="input" value={form.market_cap_category} onChange={e => setForm(f => ({ ...f, market_cap_category: e.target.value }))}>
+                <option value="">— Select —</option>
+                {CAP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
           </div>
           <div className="flex gap-3 pt-2">

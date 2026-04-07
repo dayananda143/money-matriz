@@ -55,15 +55,10 @@ export default function ShareholderDashboard() {
       {/* My Portfolio */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">My Portfolio</p>
+          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">My Demat Account</p>
           <Link to="/demat" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Demat Account →</Link>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="card p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400">SIP Net Invested</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(sipNet)}</p>
-            <p className="text-xs text-gray-400 mt-1">Total SIP deployed</p>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="card p-4">
             <p className="text-xs text-gray-500 dark:text-gray-400">Total Invested</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(totalInvested)}</p>
@@ -118,7 +113,7 @@ export default function ShareholderDashboard() {
         );
       })()}
 
-      <HoldingsWidget holdings={portfolio?.holdings} />
+      <HoldingsWidget holdings={portfolio?.holdings} sipNet={sipNet} />
 
     </div>
   );

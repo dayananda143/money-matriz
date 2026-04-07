@@ -32,6 +32,7 @@ import CompanyDashboardPage from './pages/company/CompanyDashboardPage';
 // Shared pages
 import IdeasPage from './pages/shared/IdeasPage';
 import MoversPage from './pages/shared/MoversPage';
+import TradeRequestsPage from './pages/shared/TradeRequestsPage';
 
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
@@ -71,6 +72,9 @@ function ProtectedRoutes() {
 
         {/* Movers — all users */}
         <Route path="/movers" element={<MoversPage />} />
+
+        {/* Trade Requests — shareholders and admins only */}
+        {(isShareholder || isAdmin) && <Route path="/trade-requests" element={<TradeRequestsPage />} />}
 
         {/* Demat account — any user with personal holdings */}
         <Route path="/demat" element={<DematAccountPage />} />

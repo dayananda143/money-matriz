@@ -4,9 +4,340 @@ import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Download } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/ui/Modal';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+async function exportToPDF({ userName, portfolio, month, year, include = { active: true, exited: true }, charts = {} }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const monthName = MONTHS[month].slice(0, 3).toUpperCase();
+
+  const GREEN_DARK  = [22, 78, 45];
+  const GREEN_MED   = [34, 120, 70];
+  const GREEN_LIGHT = [220, 245, 230];
+  const GREEN_PALE  = [240, 250, 244];
+  const GOLD        = [192, 155, 60];
+  const WHITE       = [255, 255, 255];
+  const GRAY_DARK   = [50, 50, 50];
+  const GRAY_MID    = [110, 110, 110];
+
+  doc.setFillColor(...WHITE);
+  doc.rect(0, 0, W, H, 'F');
+
+  const BANNER_H = 28;
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, 0, W, BANNER_H, 'F');
+  doc.setFillColor(...GOLD);
+  doc.rect(0, BANNER_H, W, 1, 'F');
+
+  let logoDataUrl = null;
+  try {
+    logoDataUrl = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = reject;
+      img.src = '/logo.png';
+    });
+    doc.addImage(logoDataUrl, 'PNG', 88, 4, 20, 20);
+  } catch { /* skip logo */ }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(...WHITE);
+  doc.text('MONEY MATRIZ MONTHLY REPORT', 111, 12);
+  doc.setFontSize(11);
+  doc.setTextColor(...GOLD);
+  doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, 171, 22, { align: 'center' });
+
+  doc.setFillColor(...GREEN_PALE);
+  doc.rect(0, BANNER_H + 1, W, 8, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(...GREEN_DARK);
+  doc.text(`Client : ${userName || '—'}`, 10, BANNER_H + 6.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRAY_MID);
+  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+
+  const holdings = portfolio?.holdings || [];
+  const activeHoldings = holdings.filter(h => h.status === 'active');
+  const exitedHoldings = holdings.filter(h => h.status === 'exited');
+  const activeInvested  = activeHoldings.reduce((s, h) => s + parseFloat(h.quantity) * parseFloat(h.avg_buy_price), 0);
+  const activeValue     = activeHoldings.reduce((s, h) => s + parseFloat(h.current_value), 0);
+  const unrealizedPct   = activeInvested > 0 ? (activeValue - activeInvested) / activeInvested * 100 : 0;
+  const exitedBuyAmount = exitedHoldings.reduce((s, h) => s + parseFloat(h.total_buy_amount), 0);
+  const realizedPnl     = exitedHoldings.reduce((s, h) => s + parseFloat(h.realized_pnl), 0);
+  const realizedPct     = exitedBuyAmount > 0 ? realizedPnl / exitedBuyAmount * 100 : 0;
+  const fmtPdf = n => `Rs. ${parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmtPct = n => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+
+  const CONTENT_Y = BANNER_H + 10;
+  const panelX = 6;
+  const panelW = 64;
+
+  const summaryRows = [
+    ['SIP Net Invested', fmtPdf(portfolio?.sip_net_invested)],
+    ['Invested Amount',  fmtPdf(activeInvested)],
+    ['Portfolio Value',  fmtPdf(activeValue)],
+    ['Unrealized P/L',  fmtPct(unrealizedPct)],
+    ['Realized P/L',    fmtPct(realizedPct)],
+  ];
+
+  autoTable(doc, {
+    startY: CONTENT_Y,
+    margin: { left: panelX },
+    tableWidth: panelW,
+    head: [],
+    body: summaryRows,
+    theme: 'plain',
+    styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', lineColor: [210, 230, 215], lineWidth: 0.3 },
+    columnStyles: {
+      0: { fillColor: GREEN_DARK, textColor: WHITE, fontStyle: 'bold', cellWidth: 30 },
+      1: { fillColor: GREEN_LIGHT, textColor: GRAY_DARK, fontStyle: 'bold', cellWidth: 34, halign: 'right' },
+    },
+    didParseCell: (data) => {
+      if (data.column.index === 1 && typeof data.cell.raw === 'string' && data.cell.raw.includes('%')) {
+        const n = parseFloat(data.cell.raw);
+        if (!isNaN(n)) {
+          data.cell.styles.textColor = n >= 0 ? [0, 140, 60] : [200, 30, 30];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+    },
+  });
+
+  const sumEndY = doc.lastAutoTable.finalY;
+  doc.setFillColor(...GREEN_MED);
+  doc.rect(panelX, CONTENT_Y, 1.5, sumEndY - CONTENT_Y, 'F');
+
+  const tableX = panelX + panelW + 4;
+  const tableW = W - tableX - 6;
+  const allRows = [
+    ...(include.active ? activeHoldings : []),
+    ...(include.exited ? exitedHoldings : []),
+  ];
+
+  const tableBody = allRows.map(h => {
+    const isActive = h.status === 'active';
+    const pnlPct = isActive
+      ? parseFloat(h.pnl_percent)
+      : (parseFloat(h.total_buy_amount) > 0 ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0);
+    return [
+      h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—',
+      h.stock_name || h.symbol,
+      parseFloat(h.avg_buy_price).toFixed(2),
+      parseFloat(h.total_buy_amount).toFixed(2),
+      parseFloat(h.total_bought_quantity || h.quantity).toFixed(2),
+      h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '',
+      parseFloat(h.avg_sell_price) > 0 ? parseFloat(h.avg_sell_price).toFixed(2) : '',
+      `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
+    ];
+  });
+
+  autoTable(doc, {
+    startY: CONTENT_Y,
+    margin: { left: tableX },
+    tableWidth: tableW,
+    head: [['BUY DATE', 'NAME', 'BOUGHT\nPRICE', 'INVESTED\nAMOUNT', 'QTY', 'SELL DATE', 'SOLD\nPRICE', 'P/L%']],
+    body: tableBody,
+    theme: 'grid',
+    headStyles: { fillColor: GREEN_DARK, textColor: WHITE, fontSize: 6.5, fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 1, right: 1 }, lineColor: GREEN_MED, lineWidth: 0.3 },
+    bodyStyles: { fontSize: 6.8, cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 }, lineColor: [210, 230, 215], lineWidth: 0.2 },
+    alternateRowStyles: { fillColor: GREEN_PALE },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 17 },
+      1: { halign: 'left',   cellWidth: 'auto' },
+      2: { halign: 'right',  cellWidth: 18 },
+      3: { halign: 'right',  cellWidth: 22 },
+      4: { halign: 'center', cellWidth: 14 },
+      5: { halign: 'center', cellWidth: 17 },
+      6: { halign: 'right',  cellWidth: 18 },
+      7: { halign: 'right',  cellWidth: 14 },
+    },
+    didParseCell: (data) => {
+      if (data.column.index === 7 && data.section === 'body') {
+        const n = parseFloat(data.cell.raw);
+        if (!isNaN(n)) {
+          data.cell.styles.textColor = n >= 0 ? [0, 140, 60] : [200, 30, 30];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+    },
+  });
+
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, H - 8, W, 8, 'F');
+  doc.setFillColor(...GOLD);
+  doc.rect(0, H - 8, W, 0.8, 'F');
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7);
+  doc.setTextColor(...WHITE);
+  doc.text('MONEY MATRIZ IS NOT REGISTERED BY SEBI', W / 2, H - 3, { align: 'center' });
+
+  doc.setDrawColor(...GREEN_DARK);
+  doc.setLineWidth(0.5);
+  doc.rect(0.5, 0.5, W - 1, H - 1, 'S');
+
+  // --- Charts page ---
+  const parseHex = hex => {
+    const h = hex.replace('#', '');
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  };
+
+  const selectedCharts = [];
+  if (charts.allocation) {
+    const items = [...activeHoldings]
+      .sort((a, b) => parseFloat(b.current_value) - parseFloat(a.current_value))
+      .map((h, i) => ({ label: h.symbol, value: parseFloat(h.current_value), color: COLORS[i % COLORS.length] }));
+    if (items.length) selectedCharts.push({ title: 'Allocation', items });
+  }
+  if (charts.sector) {
+    const sectorMap = {};
+    activeHoldings.forEach(h => {
+      const sector = h.sector || 'Other';
+      sectorMap[sector] = (sectorMap[sector] || 0) + parseFloat(h.current_value);
+    });
+    const items = Object.entries(sectorMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value], i) => ({ label, value, color: COLORS[i % COLORS.length] }));
+    if (items.length) selectedCharts.push({ title: 'Sector Allocation', items });
+  }
+  if (charts.marketCap) {
+    const capColors = { 'Large Cap': '#3b82f6', 'Mid Cap': '#10b981', 'Small Cap': '#f59e0b', 'Micro Cap': '#8b5cf6', 'Unclassified': '#6b7280' };
+    const capMap = {};
+    activeHoldings.forEach(h => {
+      const cap = h.market_cap_category || 'Unclassified';
+      capMap[cap] = (capMap[cap] || 0) + parseFloat(h.quantity) * parseFloat(h.avg_buy_price);
+    });
+    const items = Object.entries(capMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([label, value]) => ({ label, value, color: capColors[label] || '#06b6d4' }));
+    if (items.length) selectedCharts.push({ title: 'Market Cap', items });
+  }
+
+  if (selectedCharts.length > 0) {
+    doc.addPage();
+    doc.setFillColor(...WHITE);
+    doc.rect(0, 0, W, H, 'F');
+    doc.setFillColor(...GREEN_DARK);
+    doc.rect(0, 0, W, BANNER_H, 'F');
+    doc.setFillColor(...GOLD);
+    doc.rect(0, BANNER_H, W, 1, 'F');
+    if (logoDataUrl) doc.addImage(logoDataUrl, 'PNG', 88, 4, 20, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(17);
+    doc.setTextColor(...WHITE);
+    doc.text('MONEY MATRIZ MONTHLY REPORT', 111, 12);
+    doc.setFontSize(11);
+    doc.setTextColor(...GOLD);
+    doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, 171, 22, { align: 'center' });
+    doc.setFillColor(...GREEN_PALE);
+    doc.rect(0, BANNER_H + 1, W, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GREEN_DARK);
+    doc.text(`Client : ${userName || '—'}`, 10, BANNER_H + 6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY_MID);
+    doc.text(`Generated on ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+    doc.setFillColor(...GREEN_DARK);
+    doc.rect(0, H - 8, W, 8, 'F');
+    doc.setFillColor(...GOLD);
+    doc.rect(0, H - 8, W, 0.8, 'F');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.setTextColor(...WHITE);
+    doc.text('MONEY MATRIZ IS NOT REGISTERED BY SEBI', W / 2, H - 3, { align: 'center' });
+    doc.setDrawColor(...GREEN_DARK);
+    doc.setLineWidth(0.5);
+    doc.rect(0.5, 0.5, W - 1, H - 1, 'S');
+
+    const drawPie = (cx, cy, r, items) => {
+      const total = items.reduce((s, d) => s + d.value, 0);
+      if (!total) return;
+      let startAngle = -Math.PI / 2;
+      items.forEach(item => {
+        if (item.value <= 0) return;
+        const sliceAngle = (item.value / total) * 2 * Math.PI;
+        const steps = Math.max(30, Math.ceil(sliceAngle * r * 1.5));
+        const pts = [{ x: cx, y: cy }];
+        for (let i = 0; i <= steps; i++) {
+          const a = startAngle + sliceAngle * i / steps;
+          pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+        }
+        const [cr, cg, cb] = parseHex(item.color);
+        doc.setFillColor(cr, cg, cb);
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(0.5);
+        const segs = pts.slice(1).map((p, i2) => [p.x - pts[i2].x, p.y - pts[i2].y]);
+        doc.lines(segs, pts[0].x, pts[0].y, [1, 1], 'FD', true);
+        startAngle += sliceAngle;
+      });
+    };
+
+    const chartContentY = BANNER_H + 10;
+    const n = selectedCharts.length;
+    const zoneW = (W - 20) / n;
+
+    selectedCharts.forEach((chart, idx) => {
+      const zoneX = 10 + idx * zoneW;
+      const r = Math.min(32, zoneW * 0.27);
+      const cx = zoneX + zoneW * 0.33;
+      const cy = chartContentY + 52;
+      const total = chart.items.reduce((s, d) => s + d.value, 0);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(...GREEN_DARK);
+      doc.text(chart.title, zoneX + zoneW / 2, chartContentY + 8, { align: 'center' });
+      doc.setFillColor(...GOLD);
+      doc.rect(zoneX + zoneW / 2 - 18, chartContentY + 9.5, 36, 0.5, 'F');
+
+      drawPie(cx, cy, r, chart.items);
+
+      const legX = zoneX + zoneW * 0.65;
+      let legY = cy - r + 4;
+      const maxItems = Math.min(chart.items.length, 14);
+      for (let i = 0; i < maxItems; i++) {
+        const item = chart.items[i];
+        const pct = total > 0 ? (item.value / total * 100).toFixed(1) : '0.0';
+        const [cr, cg, cb] = parseHex(item.color);
+        doc.setFillColor(cr, cg, cb);
+        doc.rect(legX, legY - 2.5, 3, 3, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(...GRAY_DARK);
+        const lbl = item.label.length > 16 ? item.label.slice(0, 15) + '…' : item.label;
+        doc.text(lbl, legX + 5, legY);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${pct}%`, legX + zoneW * 0.32, legY, { align: 'right' });
+        legY += 6;
+      }
+      if (chart.items.length > maxItems) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6);
+        doc.setTextColor(...GRAY_MID);
+        doc.text(`+${chart.items.length - maxItems} more`, legX + 5, legY);
+      }
+    });
+  }
+
+  doc.save(`${(userName || 'portfolio').replace(/\s+/g, '_')}_report_${monthName}_${year}.pdf`);
+}
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
@@ -263,7 +594,7 @@ function SortTh({ label, col, sort, onSort }) {
   );
 }
 
-function HoldingsDetail({ userId }) {
+function HoldingsDetail({ userId, userName }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
@@ -273,6 +604,11 @@ function HoldingsDetail({ userId }) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
+  const [exportDialog, setExportDialog] = useState(false);
+  const [exportMonth, setExportMonth] = useState(new Date().getMonth());
+  const [exportYear, setExportYear] = useState(new Date().getFullYear());
+  const [exportInclude, setExportInclude] = useState({ active: true, exited: true });
+  const [exportCharts, setExportCharts] = useState({ allocation: false, sector: false, marketCap: false });
 
   const handleSort = (col) => {
     setSort(s => ({ key: col, dir: s.key === col && s.dir === 'desc' ? 'asc' : 'desc' }));
@@ -304,6 +640,11 @@ function HoldingsDetail({ userId }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <button onClick={() => setExportDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
+          <Download size={14} /> Export PDF
+        </button>
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="card p-4">
           <p className="text-xs text-gray-500">SIP Amount</p>
@@ -608,6 +949,50 @@ function HoldingsDetail({ userId }) {
           );
         })()}
       </Modal>
+
+      <Modal open={exportDialog} onClose={() => setExportDialog(false)} title="Export PDF Report" size="sm">
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Include holdings</p>
+            <div className="flex items-center gap-5">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={exportInclude.active} onChange={e => setExportInclude(p => ({ ...p, active: e.target.checked }))} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Active stocks</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={exportInclude.exited} onChange={e => setExportInclude(p => ({ ...p, exited: e.target.checked }))} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Exited stocks</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Include charts</p>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={exportCharts.allocation} onChange={e => setExportCharts(p => ({ ...p, allocation: e.target.checked }))} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Allocation</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={exportCharts.sector} onChange={e => setExportCharts(p => ({ ...p, sector: e.target.checked }))} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Sector Allocation</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={exportCharts.marketCap} onChange={e => setExportCharts(p => ({ ...p, marketCap: e.target.checked }))} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Market Cap Allocation</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setExportDialog(false)} className="btn-secondary flex-1">Cancel</button>
+            <button disabled={!exportInclude.active && !exportInclude.exited} onClick={() => {
+              setExportDialog(false);
+              exportToPDF({ userName, portfolio: data, month: exportMonth, year: exportYear, include: exportInclude, charts: exportCharts }).catch(console.error);
+            }} className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+              <Download size={14} /> Export
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -627,6 +1012,8 @@ function getDefaultType(u) {
 export default function PortfolioPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isShareholder = user?.user_type === 'shareholder';
+  const canViewOthers = isAdmin || isShareholder;
 
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -634,12 +1021,11 @@ export default function PortfolioPage() {
   const [userType, setUserType] = useState(() => getDefaultType(user));
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canViewOthers) return;
     setUsersLoading(true);
     api.get('/users').then(r => {
       const active = r.data.filter(u => u.is_active);
       setUsers(active);
-      // Default to own account
       const self = active.find(u => u.id === user?.id);
       setSelectedUser(self || active[0] || null);
     }).catch(console.error).finally(() => setUsersLoading(false));
@@ -647,14 +1033,14 @@ export default function PortfolioPage() {
 
   // When type changes, try to keep self selected; otherwise pick first of that type
   useEffect(() => {
-    if (!isAdmin || !users.length) return;
+    if (!canViewOthers || !users.length) return;
     const typeDef = USER_TYPES.find(t => t.label === userType);
     const filtered = typeDef ? users.filter(typeDef.filter) : users;
     const self = filtered.find(u => u.id === user?.id);
     setSelectedUser(self || filtered[0] || null);
   }, [userType, users]);
 
-  if (isAdmin) {
+  if (canViewOthers) {
     const typeDef = USER_TYPES.find(t => t.label === userType);
     const filteredUsers = typeDef ? users.filter(typeDef.filter) : users;
 
@@ -663,7 +1049,7 @@ export default function PortfolioPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Portfolio</h1>
-            <p className="text-gray-500 text-sm mt-1">View any user's portfolio</p>
+            <p className="text-gray-500 text-sm mt-1">View any user's portfolio · read only</p>
           </div>
           {!usersLoading && (
             <div className="flex items-center gap-2">
@@ -681,7 +1067,7 @@ export default function PortfolioPage() {
             </div>
           )}
         </div>
-        {selectedUser && <HoldingsDetail userId={selectedUser.id} />}
+        {selectedUser && <HoldingsDetail userId={selectedUser.id} userName={selectedUser.name} />}
       </div>
     );
   }
@@ -692,7 +1078,7 @@ export default function PortfolioPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Portfolio</h1>
         <p className="text-gray-500 text-sm mt-1">Detailed holdings breakdown</p>
       </div>
-      <HoldingsDetail userId="me" />
+      <HoldingsDetail userId="me" userName={user?.name} />
     </div>
   );
 }

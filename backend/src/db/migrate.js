@@ -137,6 +137,10 @@ async function migrate() {
   // Group_id on individual transactions (to track which transaction group each buy belongs to)
   await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES stock_groups(id) ON DELETE SET NULL`);
 
+  // Per-investor settled flags on transactions
+  await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS investment_settled BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pnl_settled BOOLEAN DEFAULT false`);
+
   // Ideas board
   await query(`
     CREATE TABLE IF NOT EXISTS ideas (
@@ -150,6 +154,65 @@ async function migrate() {
     )
   `);
   await query(`ALTER TABLE ideas ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'`);
+
+  // SIP Participants (shareholders enrolled in SIP tracking)
+  await query(`
+    CREATE TABLE IF NOT EXISTS sip_participants (
+      id SERIAL PRIMARY KEY,
+      shareholder_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // SIP Plans
+  await query(`
+    CREATE TABLE IF NOT EXISTS sip_plans (
+      id SERIAL PRIMARY KEY,
+      client_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      stock_id INTEGER REFERENCES stocks(id) ON DELETE CASCADE,
+      amount DECIMAL(12,2) NOT NULL,
+      frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('weekly', 'monthly', 'quarterly', 'yearly')),
+      start_date DATE NOT NULL,
+      next_date DATE,
+      installments_completed INTEGER DEFAULT 0,
+      total_invested DECIMAL(14,2) DEFAULT 0,
+      status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completed')),
+      notes TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // SIP type (configurable label e.g. "lumpsum", "monthly_sip")
+  await query(`ALTER TABLE sip_plans ADD COLUMN IF NOT EXISTS sip_type VARCHAR(100)`);
+
+  // Default SIP amount per participant (pre-fills bulk entry)
+  await query(`ALTER TABLE sip_participants ADD COLUMN IF NOT EXISTS default_amount NUMERIC(15,2)`);
+
+  // Make frequency, start_date, stock_id optional (nullable) for old/manual data
+  await query(`ALTER TABLE sip_plans ALTER COLUMN frequency DROP NOT NULL`).catch(() => {});
+  await query(`ALTER TABLE sip_plans ALTER COLUMN start_date DROP NOT NULL`).catch(() => {});
+  await query(`ALTER TABLE sip_plans ALTER COLUMN stock_id DROP NOT NULL`).catch(() => {});
+
+  // Add shareholder_id directly to sip_plans (SIPs belong to shareholders, not clients)
+  await query(`ALTER TABLE sip_plans ADD COLUMN IF NOT EXISTS shareholder_id INTEGER REFERENCES users(id) ON DELETE CASCADE`);
+
+  // SIP Installments (individual installment records)
+  await query(`
+    CREATE TABLE IF NOT EXISTS sip_installments (
+      id SERIAL PRIMARY KEY,
+      sip_plan_id INTEGER REFERENCES sip_plans(id) ON DELETE CASCADE,
+      amount DECIMAL(12,2) NOT NULL,
+      invested_date DATE NOT NULL,
+      notes TEXT,
+      created_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // Market cap category
+  await query(`ALTER TABLE stocks ADD COLUMN IF NOT EXISTS market_cap_category VARCHAR(20)`);
 
   // Seed super admin if not exists
   const { rows } = await query(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`);

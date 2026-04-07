@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Settings, Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Landmark, Activity
+  Settings, Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Landmark, Activity, ClipboardList
 } from 'lucide-react';
 
 const navConfig = {
@@ -27,11 +27,13 @@ const navConfig = {
     { to: '/ideas', icon: Lightbulb, label: 'Ideas' },
   ],
   shareholder_extra: [
+    { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
     { to: '/sip', icon: CalendarClock, label: 'SIP Plans' },
   ],
   admin_extra: [
     { to: '/admin/overview', icon: LayoutDashboard, label: 'Overview' },
     { to: '/admin/clients', icon: Users, label: 'All Clients' },
+    { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
     { to: '/company', icon: Building2, label: 'Company' },
     { to: '/admin/stocks', icon: BarChart2, label: 'Stocks' },
     { to: '/admin/relationships', icon: Link2, label: 'Relationships' },

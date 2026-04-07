@@ -7,7 +7,7 @@ const HOLDING_COLORS = [
   '#f59e0b','#f97316','#ef4444','#ec4899','#8b5cf6','#a855f7',
 ];
 
-export default function HoldingsWidget({ holdings, radioName = 'holdingsView' }) {
+export default function HoldingsWidget({ holdings, radioName = 'holdingsView', sipNet }) {
   const [view, setView] = useState('current');
   const [hovered, setHovered] = useState(null);
 
@@ -83,14 +83,14 @@ export default function HoldingsWidget({ holdings, radioName = 'holdingsView' })
   return (
     <div className="card p-5">
       {/* Header */}
-      <div className="flex items-start gap-6 mb-4 flex-wrap">
+      <div className="flex items-start gap-10 mb-4 flex-wrap">
         <div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Holdings ({active.length})</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">P&amp;L</p>
           <p className={`text-3xl font-bold ${pnlColor(totalPnl)}`}>
             {pnlSign(totalPnl)}{fmt.compact(Math.abs(totalPnl))}
           </p>
           <p className={`text-sm font-medium ${pnlColor(pnlPct)}`}>{pnlSign(pnlPct)}{fmt.percent(pnlPct)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">P&amp;L</p>
+          <p className="text-xs font-semibold text-gray-900 dark:text-white mt-3">Holdings ({active.length})</p>
         </div>
         <div className="border-l border-gray-200 dark:border-gray-700 pl-6 space-y-2">
           <div>
@@ -101,6 +101,12 @@ export default function HoldingsWidget({ holdings, radioName = 'holdingsView' })
             <p className="text-xs text-gray-500 dark:text-gray-400">Investment</p>
             <p className="text-base font-semibold text-gray-900 dark:text-white">{fmt.compact(totalInvested)}</p>
           </div>
+          {sipNet != null && (
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">SIP Net Invested</p>
+              <p className="text-base font-semibold text-gray-900 dark:text-white">{fmt.compact(sipNet)}</p>
+            </div>
+          )}
         </div>
       </div>
 
