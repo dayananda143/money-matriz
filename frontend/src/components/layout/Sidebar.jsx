@@ -33,6 +33,7 @@ const navConfig = {
   admin_extra: [
     { to: '/admin/overview', icon: LayoutDashboard, label: 'Overview' },
     { to: '/admin/clients', icon: Users, label: 'All Clients' },
+    { to: '/admin/users', icon: UserCircle, label: 'Users' },
     { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
     { to: '/company', icon: Building2, label: 'Company' },
     { to: '/admin/stocks', icon: BarChart2, label: 'Stocks' },
