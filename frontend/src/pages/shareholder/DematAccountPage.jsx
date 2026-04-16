@@ -4,6 +4,7 @@ import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
 import { Landmark, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 function SortTh({ label, col, sort, onSort, children }) {
   const active = sort.key === col;
@@ -19,7 +20,19 @@ function SortTh({ label, col, sort, onSort, children }) {
   );
 }
 
-export default function DematAccountPage() {
+const USER_TYPES = [
+  { label: 'Employee', filter: u => u.role === 'admin' || u.role === 'super_admin' },
+  { label: 'Shareholder', filter: u => u.user_type === 'shareholder' },
+  { label: 'Client', filter: u => u.user_type === 'client' },
+];
+
+function getDefaultType(u) {
+  if (u?.user_type === 'shareholder') return 'Shareholder';
+  if (u?.user_type === 'client') return 'Client';
+  return 'Employee';
+}
+
+function DematContent({ userId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
@@ -29,15 +42,17 @@ export default function DematAccountPage() {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    api.get('/stocks/my-demat')
+    setLoading(true);
+    setData(null);
+    const url = userId === 'me' ? '/stocks/my-demat' : `/stocks/brokerage-accounts/holder/${userId}`;
+    api.get(url)
       .then(r => setData(r.data))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [userId]);
 
   if (loading) return (
     <div className="space-y-6">
-      <SkeletonPageHeader />
       <SkeletonStatCards count={4} />
       <SkeletonTable rows={6} cols={6} />
     </div>
@@ -92,20 +107,9 @@ export default function DematAccountPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center">
-          <Landmark size={20} className="text-brand-600 dark:text-brand-400" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Demat Account</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{holdings.length} stock group{holdings.length !== 1 ? 's' : ''} in your name</p>
-        </div>
-      </div>
-
-      {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-4">
-          <p className="text-xs text-gray-500">Total Groups</p>
+          <p className="text-xs text-gray-500">Total Stocks</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{holdings.length}</p>
           <p className="text-xs text-gray-400 mt-1">{activeHoldings.length} active</p>
         </div>
@@ -134,7 +138,6 @@ export default function DematAccountPage() {
         </div>
       </div>
 
-      {/* Holdings table */}
       <div className="card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex-wrap gap-2">
           <div className="flex items-center gap-1">
@@ -148,13 +151,9 @@ export default function DematAccountPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search stock…"
-                value={search}
+              <input type="text" placeholder="Search stock…" value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }}
-                className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-36"
-              />
+                className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-36" />
             </div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Show</span>
             <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
@@ -172,6 +171,8 @@ export default function DematAccountPage() {
             <tr>
               <SortTh label="Stock" col="symbol" sort={sort} onSort={handleSort} />
               <SortTh label="Group" col="group_label" sort={sort} onSort={handleSort} />
+              <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />
+              {tab === 'exited' && <SortTh label="Sell Date" col="last_sell_date" sort={sort} onSort={handleSort} />}
               <SortTh label="Qty Bought" col="total_bought" sort={sort} onSort={handleSort} />
               <SortTh label="Qty Remaining" col="remaining" sort={sort} onSort={handleSort} />
               <SortTh label="Total Invested" col="total_invested" sort={sort} onSort={handleSort} />
@@ -183,7 +184,7 @@ export default function DematAccountPage() {
             </tr>
           </thead>
           <tbody>
-            {!paged.length && <EmptyRow cols={9} message={`No ${tab} holdings found`} />}
+            {!paged.length && <EmptyRow cols={tab === 'exited' ? 11 : 10} message={`No ${tab} holdings found`} />}
             {paged.map(h => {
               const remaining = parseFloat(h.total_bought) - parseFloat(h.total_sold);
               const currentValue = remaining * parseFloat(h.current_price);
@@ -195,6 +196,8 @@ export default function DematAccountPage() {
                     {h.sector && <p className="text-xs text-gray-400">{h.sector}</p>}
                   </Td>
                   <Td className="text-sm text-gray-700 dark:text-gray-300">{h.group_label}</Td>
+                  <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
+                  {tab === 'exited' && <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>}
                   <Td className="font-medium">{fmt.number(h.total_bought, 2)}</Td>
                   <Td className="font-medium">{fmt.number(remaining, 2)}</Td>
                   <Td>{fmt.currency(h.total_invested)}</Td>
@@ -236,6 +239,75 @@ export default function DematAccountPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export default function DematAccountPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [userType, setUserType] = useState(() => getDefaultType(user));
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    setUsersLoading(true);
+    api.get('/users').then(r => {
+      const active = r.data.filter(u => u.is_active);
+      setUsers(active);
+      const self = active.find(u => u.id === user?.id);
+      setSelectedUser(self || active[0] || null);
+    }).catch(console.error).finally(() => setUsersLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin || !users.length) return;
+    const typeDef = USER_TYPES.find(t => t.label === userType);
+    const filtered = typeDef ? users.filter(typeDef.filter) : users;
+    const self = filtered.find(u => u.id === user?.id);
+    setSelectedUser(self || filtered[0] || null);
+  }, [userType, users]);
+
+  const typeDef = USER_TYPES.find(t => t.label === userType);
+  const filteredUsers = isAdmin ? (typeDef ? users.filter(typeDef.filter) : users) : [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center">
+            <Landmark size={20} className="text-brand-600 dark:text-brand-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Demat Account</h1>
+            <p className="text-gray-500 text-sm mt-0.5">
+              {isAdmin ? 'View any user\'s demat holdings · read only' : 'Your personal demat holdings'}
+            </p>
+          </div>
+        </div>
+        {isAdmin && !usersLoading && (
+          <div className="flex items-center gap-2">
+            <select className="input w-36" value={userType} onChange={e => setUserType(e.target.value)}>
+              {USER_TYPES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
+            </select>
+            <select className="input w-52" value={selectedUser?.id || ''}
+              onChange={e => setSelectedUser(filteredUsers.find(u => u.id === parseInt(e.target.value)))}>
+              {!filteredUsers.length && <option value="">No users</option>}
+              {filteredUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {isAdmin
+        ? selectedUser
+          ? <DematContent key={selectedUser.id} userId={selectedUser.id} />
+          : <p className="text-gray-400 text-sm">No user selected.</p>
+        : <DematContent userId="me" />
+      }
     </div>
   );
 }

@@ -21,4 +21,7 @@ app.use('/api/trade-requests', require('./routes/trade-requests'));
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3003;
-app.listen(PORT, () => console.log(`Money Matriz backend running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Money Matriz backend running on port ${PORT}`);
+  require('./services/priceScheduler').start();
+});

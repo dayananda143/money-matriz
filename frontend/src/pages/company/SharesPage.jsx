@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Plus, Edit2, Trash2, Copy, PieChart as PieIcon, Users, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, EyeOff, Eye } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
@@ -22,6 +23,8 @@ function SortIcon({ col, sort }) {
 }
 
 export default function SharesPage() {
+  const { user } = useAuth();
+  const readOnly = user?.role !== 'super_admin';
   const [records, setRecords] = useState([]);
   const [shareholders, setShareholders] = useState([]);
   const [summary, setSummary] = useState([]);
@@ -559,9 +562,7 @@ export default function SharesPage() {
                 </button>
               ))}
             </div>
-            <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3">
-              <Plus size={15} /> Add Entry
-            </button>
+            {!readOnly && <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3"><Plus size={15} /> Add Entry</button>}
           </div>
         </div>
         <Table>
@@ -607,8 +608,8 @@ export default function SharesPage() {
                   <div className="flex items-center gap-1">
                     <button onClick={() => openContributors(r)} className="p-1 text-gray-400 hover:text-violet-600" title="Shareholders"><Users size={14} /></button>
                     <button onClick={() => openCopy(r)} className="p-1 text-gray-400 hover:text-emerald-600" title="Copy"><Copy size={14} /></button>
-                    <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>
-                    <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
+                    {!readOnly && <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>}
+                    {!readOnly && <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>}
                   </div>
                 </Td>
               </tr>
@@ -737,7 +738,7 @@ export default function SharesPage() {
         title={selected ? `Shareholders — ${selected.description}` : 'Shareholders'}
         headerAction={
           availableShareholders.length > 0 ? (
-            <div className="flex items-center gap-3">
+            !readOnly ? <div className="flex items-center gap-3">
               <button onClick={openBulkAdd}
                 className="flex items-center gap-1 text-sm text-violet-600 hover:text-violet-700 font-medium">
                 <Users size={15} /> Add All
@@ -746,7 +747,7 @@ export default function SharesPage() {
                 className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium">
                 <Plus size={15} /> Add One
               </button>
-            </div>
+            </div> : null
           ) : null
         }>
         <div className="space-y-4">

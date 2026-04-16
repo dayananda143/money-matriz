@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, Users, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, Pencil } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -20,6 +21,8 @@ function SortIcon({ col, sort }) {
 }
 
 export default function TradingInvestmentPage() {
+  const { user } = useAuth();
+  const readOnly = user?.role !== 'super_admin';
   const [records, setRecords] = useState([]);
   const [shareholders, setShareholders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -221,9 +224,7 @@ export default function TradingInvestmentPage() {
             </div>
           </div>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Add Transaction
-        </button>
+        {!readOnly && <button onClick={openCreate} className="btn-primary flex items-center gap-2"><Plus size={16} /> Add Transaction</button>}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -367,8 +368,8 @@ export default function TradingInvestmentPage() {
                 <Td>
                   <div className="flex items-center gap-1">
                     <button onClick={() => openContributors(r)} className="p-1 text-gray-400 hover:text-blue-600" title="Manage Users"><Users size={14} /></button>
-                    <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>
-                    <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
+                    {!readOnly && <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>}
+                    {!readOnly && <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>}
                   </div>
                 </Td>
               </tr>
@@ -424,12 +425,12 @@ export default function TradingInvestmentPage() {
       {/* Contributors modal */}
       <Modal open={modal === 'contributors'} onClose={() => setModal(null)} size="lg"
         title={selected ? `Users — ${selected.description}` : 'Users'}
-        headerAction={
+        headerAction={!readOnly ? (
           <button onClick={() => { setContributorForm(EMPTY_CONTRIBUTOR); setContributorError(''); setContributorModal('add'); }}
             className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium">
             <Plus size={15} /> Add User
           </button>
-        }>
+        ) : null}>
         <div className="space-y-4">
           {selected && (
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 flex items-center justify-between">
@@ -459,12 +460,12 @@ export default function TradingInvestmentPage() {
                     </Td>
                     <Td className="font-semibold text-blue-600 dark:text-blue-400">{fmt.currency(c.amount)}</Td>
                     <Td className="text-gray-500 text-xs">{c.notes || '—'}</Td>
-                    <Td>
+                    {!readOnly && <Td>
                       <div className="flex items-center gap-1">
                         <button onClick={() => openEditContributor(c)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Pencil size={14} /></button>
                         <button onClick={() => { setSelectedContributor(c); setContributorModal('delete'); }} className="p-1 text-gray-400 hover:text-red-600" title="Remove"><Trash2 size={14} /></button>
                       </div>
-                    </Td>
+                    </Td>}
                   </tr>
                 ))}
               </tbody>

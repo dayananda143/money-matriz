@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Plus, Edit2, Trash2, Landmark, CreditCard, Search, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -19,6 +20,8 @@ function SortIcon({ col, sort }) {
 }
 
 export default function DebtPage() {
+  const { user } = useAuth();
+  const readOnly = user?.role !== 'super_admin';
   const [records, setRecords] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -184,9 +187,7 @@ export default function DebtPage() {
             </div>
           </div>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Add Debt
-        </button>
+        {!readOnly && <button onClick={openCreate} className="btn-primary flex items-center gap-2"><Plus size={16} /> Add Debt</button>}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -287,8 +288,8 @@ export default function DebtPage() {
                   <Td>
                     <div className="flex items-center gap-1">
                       <button onClick={() => openPayments(r)} className="p-1 text-gray-400 hover:text-blue-600" title="Payments"><CreditCard size={14} /></button>
-                      <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>
-                      <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
+                      {!readOnly && <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>}
+                      {!readOnly && <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>}
                     </div>
                   </Td>
                 </tr>
@@ -354,12 +355,12 @@ export default function DebtPage() {
       {/* Payments modal */}
       <Modal open={modal === 'payments'} onClose={() => setModal(null)} size="lg"
         title={selected ? `Payments — ${selected.description}` : 'Payments'}
-        headerAction={
+        headerAction={!readOnly ? (
           <button onClick={() => { setPaymentForm(EMPTY_PAYMENT); setPaymentError(''); setPaymentModal('add'); }}
             className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium">
             <Plus size={15} /> Add Payment
           </button>
-        }>
+        ) : null}>
         <div className="space-y-4">
           {selected && (
             <div className="grid grid-cols-3 gap-3">
@@ -398,10 +399,10 @@ export default function DebtPage() {
                     <Td className="font-semibold text-green-600 dark:text-green-400">{fmt.currency(p.amount)}</Td>
                     <Td className="text-gray-500 text-xs">{p.notes || '—'}</Td>
                     <Td className="text-gray-500 text-xs">{p.created_by_name || '—'}</Td>
-                    <Td>
+                    {!readOnly && <Td>
                       <button onClick={() => { setSelectedPayment(p); setPaymentModal('delete'); }}
                         className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
-                    </Td>
+                    </Td>}
                   </tr>
                 ))}
               </tbody>

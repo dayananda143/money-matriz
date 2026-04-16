@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart as PieIcon, Building2, Wallet } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
@@ -23,6 +24,8 @@ const CATEGORY_ORDER = ['debt','operating_expense','stock_strategy','tax','tradi
 
 export default function CompanyDashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeSlice, setActiveSlice] = useState(null);
@@ -85,7 +88,8 @@ export default function CompanyDashboardPage() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {/* Debt Remaining first */}
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+          <button onClick={() => navigate('/company/debt', { state: { readOnly: !isAdmin } })}
+            className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left w-full">
             <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[0] }} />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">Debt Payments Made</p>
@@ -94,7 +98,7 @@ export default function CompanyDashboardPage() {
             <div className="text-right flex-shrink-0">
               <p className="text-sm font-bold text-red-600 dark:text-red-400">{fmt.currency(debt.paid)}</p>
             </div>
-          </div>
+          </button>
           {CATEGORY_ORDER.filter(k => k !== 'debt' && k !== 'shares').map((key, i) => {
             const meta = CATEGORY_META[key];
             const cat = categories[key] || { total: 0, count: 0 };
@@ -113,7 +117,8 @@ export default function CompanyDashboardPage() {
             }, 0);
             const pct = catTotal > 0 ? ((displayAmount / catTotal) * 100).toFixed(1) : '0.0';
             return (
-              <div key={key} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+              <button key={key} onClick={() => navigate(meta.to, { state: { readOnly: !isAdmin } })}
+                className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left w-full">
                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[(i + 1) % COLORS.length] }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{meta.label}</p>
@@ -123,7 +128,7 @@ export default function CompanyDashboardPage() {
                   <p className={`text-sm font-bold ${key === 'stock_strategy' ? (displayAmount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400') : 'text-gray-900 dark:text-white'}`}>{key === 'stock_strategy' ? fmt.currency(Math.abs(displayAmount)) : fmt.currency(displayAmount)}</p>
                   <span className="text-xs font-semibold text-brand-600 dark:text-brand-400">{pct}%</span>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>

@@ -167,7 +167,11 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   // ── Holdings table (right) ─────────────────────────────────────
   const tableX = panelX + panelW + 4;
   const tableW = W - tableX - 6;
-  const allRows = [...activeHoldings, ...exitedHoldings];
+  const allRows = [...activeHoldings, ...exitedHoldings].sort((a, b) => {
+    const da = a.first_buy_date ? new Date(a.first_buy_date) : new Date(0);
+    const db = b.first_buy_date ? new Date(b.first_buy_date) : new Date(0);
+    return da - db;
+  });
 
   const tableBody = allRows.map(h => {
     const isActive = h.status === 'active';
@@ -530,6 +534,7 @@ export default function ClientDetailPage() {
                 <thead><tr>
                   <SortTh label="Symbol" col="symbol" sort={holdingsSort} onSort={handleSort} />
                   <Th>Name</Th>
+                  <SortTh label="Buy Date" col="first_buy_date" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Qty" col="quantity" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Avg Buy" col="avg_buy_price" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Current" col="current_price" sort={holdingsSort} onSort={handleSort} />
@@ -538,11 +543,12 @@ export default function ClientDetailPage() {
                   <SortTh label="P&L" col="unrealized_pnl" sort={holdingsSort} onSort={handleSort} />
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={8} message="No active holdings" />}
+                  {!paged.length && <EmptyRow cols={9} message="No active holdings" />}
                   {paged.map(h => (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                       <Td>{h.stock_name}</Td>
+                      <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
                       <Td>{fmt.number(h.quantity, 2)}</Td>
                       <Td>{fmt.currency(h.avg_buy_price)}</Td>
                       <Td>{fmt.currency(h.current_price)}</Td>
@@ -558,17 +564,21 @@ export default function ClientDetailPage() {
                 <thead><tr>
                   <SortTh label="Symbol" col="symbol" sort={holdingsSort} onSort={handleSort} />
                   <Th>Name</Th>
+                  <SortTh label="Buy Date" col="first_buy_date" sort={holdingsSort} onSort={handleSort} />
+                  <SortTh label="Sell Date" col="last_sell_date" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Qty Bought" col="total_bought_quantity" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Avg Buy" col="avg_buy_price" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Invested" col="total_buy_amount" sort={holdingsSort} onSort={handleSort} />
                   <SortTh label="Realized P&L" col="realized_pnl" sort={holdingsSort} onSort={handleSort} />
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={6} message="No exited holdings" />}
+                  {!paged.length && <EmptyRow cols={8} message="No exited holdings" />}
                   {paged.map(h => (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                       <Td>{h.stock_name}</Td>
+                      <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
+                      <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>
                       <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>
                       <Td>{fmt.currency(h.avg_buy_price)}</Td>
                       <Td>{fmt.currency(h.total_buy_amount)}</Td>

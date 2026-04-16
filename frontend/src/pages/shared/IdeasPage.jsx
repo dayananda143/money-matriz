@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Lightbulb, Pencil, Trash2, Plus, X, CheckCircle2, Clock } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Lightbulb, Pencil, Trash2, Plus, X, CheckCircle2, Clock, MessageCircle, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmt } from '../../utils/format';
@@ -19,13 +19,164 @@ function StatusBadge({ status }) {
   );
 }
 
+function CommentsSection({ ideaId, currentUser }) {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [count, setCount] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
+
+  // Load count on mount
+  useEffect(() => {
+    api.get(`/ideas/${ideaId}/comments`)
+      .then(r => setCount(r.data.length))
+      .catch(() => setCount(0));
+  }, [ideaId]);
+
+  const toggle = async () => {
+    if (!open && !loaded) {
+      setLoading(true);
+      try {
+        const { data } = await api.get(`/ideas/${ideaId}/comments`);
+        setComments(data);
+        setCount(data.length);
+        setLoaded(true);
+      } catch {} finally { setLoading(false); }
+    }
+    setOpen(o => !o);
+    if (!open) setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const post = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setPosting(true);
+    try {
+      const { data } = await api.post(`/ideas/${ideaId}/comments`, { content: text.trim() });
+      setComments(c => [...c, data]);
+      setCount(n => (n || 0) + 1);
+      setText('');
+    } catch (err) { alert(err.message); } finally { setPosting(false); }
+  };
+
+  const remove = async (commentId) => {
+    try {
+      await api.delete(`/ideas/${ideaId}/comments/${commentId}`);
+      setComments(c => c.filter(x => x.id !== commentId));
+      setCount(n => Math.max(0, (n || 1) - 1));
+    } catch (err) { alert(err.message); }
+  };
+
+  const startEdit = (c) => { setEditingId(c.id); setEditText(c.content); };
+  const cancelEdit = () => { setEditingId(null); setEditText(''); };
+
+  const saveEdit = async (commentId) => {
+    if (!editText.trim()) return;
+    setSaving(true);
+    try {
+      const { data } = await api.put(`/ideas/${ideaId}/comments/${commentId}`, { content: editText.trim() });
+      setComments(c => c.map(x => x.id === commentId ? { ...x, content: data.content } : x));
+      cancelEdit();
+    } catch (err) { alert(err.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="border-t border-gray-100 dark:border-gray-800 mt-3 pt-2">
+      <button onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors font-medium">
+        <MessageCircle size={13} />
+        {count !== null ? `${count} comment${count !== 1 ? 's' : ''}` : 'Comments'}
+        {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {loading ? (
+            <div className="space-y-2">
+              {[1,2].map(i => <div key={i} className="h-8 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />)}
+            </div>
+          ) : comments.length === 0 ? (
+            <p className="text-xs text-gray-400 dark:text-gray-500 italic">No comments yet. Be the first!</p>
+          ) : (
+            <div className="space-y-2">
+              {comments.map(c => (
+                <div key={c.id} className="flex gap-2.5 group">
+                  <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-xs shrink-0 mt-0.5">
+                    {c.author_name?.[0]?.toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{c.author_name}</span>
+                      <span className="text-[10px] text-gray-400">{fmt.datetime(c.created_at)}</span>
+                      {c.user_id === currentUser.id && editingId !== c.id && (
+                        <button onClick={() => startEdit(c)}
+                          className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-brand-500 transition-all">
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                      {(c.user_id === currentUser.id || isAdmin) && editingId !== c.id && (
+                        <button onClick={() => remove(c.id)}
+                          className={`p-0.5 text-gray-400 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 ${c.user_id === currentUser.id ? '' : 'ml-auto'}`}>
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {editingId === c.id ? (
+                      <div className="flex gap-1.5 mt-1">
+                        <input autoFocus value={editText} onChange={e => setEditText(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEdit(c.id); if (e.key === 'Escape') cancelEdit(); }}
+                          className="flex-1 text-xs px-2 py-1 border border-brand-400 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        <button onClick={() => saveEdit(c.id)} disabled={saving || !editText.trim()}
+                          className="p-1 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-40">
+                          <Check size={12} />
+                        </button>
+                        <button onClick={cancelEdit} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 leading-relaxed">{c.content}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <form onSubmit={post} className="flex gap-2 pt-1">
+            <input
+              ref={inputRef}
+              type="text"
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="Write a comment..."
+              className="flex-1 text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <button type="submit" disabled={posting || !text.trim()}
+              className="p-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              <Send size={13} />
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
   const isOwner = idea.user_id === currentUser.id;
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
   const canModify = isOwner || isAdmin;
 
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-2 shadow-sm">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           <h3 className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">{idea.title}</h3>
@@ -34,8 +185,7 @@ function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
         {canModify && (
           <div className="flex items-center gap-1 flex-shrink-0">
             {isAdmin && (
-              <button
-                onClick={() => onToggleStatus(idea)}
+              <button onClick={() => onToggleStatus(idea)}
                 title={idea.status === 'pending' ? 'Mark as Implemented' : 'Mark as Pending'}
                 className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${idea.status === 'implemented' ? 'text-green-500' : 'text-gray-400 hover:text-green-600'}`}>
                 <CheckCircle2 size={13} />
@@ -50,8 +200,8 @@ function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
           </div>
         )}
       </div>
-      <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{idea.content}</p>
-      <div className="flex items-center justify-between pt-1">
+      <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mt-2">{idea.content}</p>
+      <div className="flex items-center justify-between pt-2">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-xs">
             {idea.author_name?.[0]?.toUpperCase()}
@@ -60,6 +210,7 @@ function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
         </div>
         <span className="text-xs text-gray-400 dark:text-gray-500">{fmt.datetime(idea.created_at)}</span>
       </div>
+      <CommentsSection ideaId={idea.id} currentUser={currentUser} />
     </div>
   );
 }
@@ -198,7 +349,6 @@ export default function IdeasPage() {
         </button>
       </div>
 
-      {/* Filter tabs */}
       <div className="flex gap-2">
         {['all', 'pending', 'implemented'].map(s => (
           <button key={s} onClick={() => setFilterStatus(s)}

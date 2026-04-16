@@ -92,14 +92,15 @@ function ProtectedRoutes() {
 
         {/* Company routes (admin only) */}
         {isAdmin && <Route path="/company" element={<CompanyPage />} />}
-        {isAdmin && <Route path="/company/debt" element={<DebtPage />} />}
-        {isAdmin && <Route path="/company/operating-expense" element={<OperatingExpensePage />} />}
-        {isAdmin && <Route path="/company/stock-strategy" element={<StockStrategyPage />} />}
-        {isAdmin && <Route path="/company/tax" element={<TaxPage />} />}
-        {isAdmin && <Route path="/company/trading-investment" element={<TradingInvestmentPage />} />}
-        {isAdmin && <Route path="/company/clients-payment" element={<ClientsPaymentPage />} />}
-        {isAdmin && <Route path="/company/shares" element={<SharesPage />} />}
         {isAdmin && <Route path="/company/deposits" element={<DepositsPage />} />}
+        {/* Company detail routes — admin full access, shareholder read-only */}
+        {(isAdmin || isShareholder) && <Route path="/company/debt" element={<DebtPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/operating-expense" element={<OperatingExpensePage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/stock-strategy" element={<StockStrategyPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/tax" element={<TaxPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/trading-investment" element={<TradingInvestmentPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/clients-payment" element={<ClientsPaymentPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/company/shares" element={<SharesPage />} />}
 
         {/* Admin routes */}
         {isAdmin && <Route path="/admin/users" element={<UsersPage />} />}

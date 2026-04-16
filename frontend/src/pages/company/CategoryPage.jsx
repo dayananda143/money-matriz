@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Plus, Edit2, Trash2, Search, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -26,6 +27,8 @@ function SortIcon({ col, sort }) {
 }
 
 export default function CategoryPage({ category, label, description, icon: Icon, color, bg, withUser = false, userFilter = null, withTransactionType = false, withScheme = false }) {
+  const { user } = useAuth();
+  const readOnly = user?.role !== 'super_admin';
   const [records, setRecords] = useState([]);
   const [users, setUsers] = useState([]);
   const [allSchemes, setAllSchemes] = useState([]);
@@ -162,9 +165,11 @@ export default function CategoryPage({ category, label, description, icon: Icon,
             </div>
           </div>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Add Record
-        </button>
+        {!readOnly && (
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> Add Record
+          </button>
+        )}
       </div>
 
       {withTransactionType ? (
@@ -294,12 +299,14 @@ export default function CategoryPage({ category, label, description, icon: Icon,
                 <Td className="font-semibold">{fmt.currency(r.amount)}</Td>
                 <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>
                 <Td className="text-gray-500 text-xs">{r.created_by_name || '—'}</Td>
-                <Td>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600"><Edit2 size={14} /></button>
-                    <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
-                  </div>
-                </Td>
+                {!readOnly && (
+                  <Td>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600"><Edit2 size={14} /></button>
+                      <button onClick={() => openDelete(r)} className="p-1 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+                    </div>
+                  </Td>
+                )}
               </tr>
             ))}
           </tbody>

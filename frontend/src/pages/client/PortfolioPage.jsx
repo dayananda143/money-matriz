@@ -752,6 +752,7 @@ function HoldingsDetail({ userId, userName }) {
                 <thead><tr>
                   <SortTh label="Symbol" col="symbol" sort={sort} onSort={handleSort} />
                   <Th>Name</Th><Th>Sector</Th>
+                  <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />
                   <SortTh label="Qty" col="quantity" sort={sort} onSort={handleSort} />
                   <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />
                   <SortTh label="Current Price" col="current_price" sort={sort} onSort={handleSort} />
@@ -760,7 +761,7 @@ function HoldingsDetail({ userId, userName }) {
                   <SortTh label="P&L %" col="pnl_percent" sort={sort} onSort={handleSort} />
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={9} message="No active holdings" />}
+                  {!paged.length && <EmptyRow cols={10} message="No active holdings" />}
                   {paged.map(h => (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
@@ -769,6 +770,7 @@ function HoldingsDetail({ userId, userName }) {
                         <span className="badge-blue">{h.sector || '—'}</span>
                         {h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}
                       </Td>
+                      <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
                       <Td>{fmt.number(h.quantity, 2)}</Td>
                       <Td>{fmt.currency(h.avg_buy_price)}</Td>
                       <Td>{fmt.currency(h.current_price)}</Td>
@@ -787,11 +789,13 @@ function HoldingsDetail({ userId, userName }) {
                   <SortTh label="Shares" col="total_bought_quantity" sort={sort} onSort={handleSort} />
                   <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />
                   <SortTh label="Amt Invested" col="total_buy_amount" sort={sort} onSort={handleSort} />
+                  <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />
+                  <SortTh label="Sell Date" col="last_sell_date" sort={sort} onSort={handleSort} />
                   <SortTh label="Realized P&L" col="realized_pnl" sort={sort} onSort={handleSort} />
                   <SortTh label="P&L %" col="exited_pct" sort={sort} onSort={handleSort} />
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={8} message="No exited positions" />}
+                  {!paged.length && <EmptyRow cols={10} message="No exited positions" />}
                   {paged.map(h => {
                     const buyAmt = parseFloat(h.total_buy_amount);
                     const pct = buyAmt > 0 ? (parseFloat(h.realized_pnl) / buyAmt * 100) : 0;
@@ -806,6 +810,8 @@ function HoldingsDetail({ userId, userName }) {
                         <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>
                         <Td>{fmt.currency(h.avg_buy_price)}</Td>
                         <Td>{fmt.currency(h.total_buy_amount)}</Td>
+                        <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
+                        <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>
                         <Td><span className={pnlColor(h.realized_pnl)}>{pnlSign(h.realized_pnl)}{fmt.currency(h.realized_pnl)}</span></Td>
                         <Td><span className={pnlColor(pct)}>{pnlSign(pct)}{fmt.percent(pct)}</span></Td>
                       </tr>
