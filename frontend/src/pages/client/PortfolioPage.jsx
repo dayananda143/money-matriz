@@ -9,10 +9,32 @@ import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/ui/Modal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-async function exportToPDF({ userName, portfolio, month, year, include = { active: true, exited: true }, charts = {} }) {
+function sortHoldings(rows, sort) {
+  if (!sort?.key) return rows;
+  return [...rows].sort((a, b) => {
+    let av, bv;
+    if (sort.key === 'symbol' || sort.key === 'stock_name') { av = a[sort.key] || ''; bv = b[sort.key] || ''; }
+    else if (sort.key === 'pnl_percent' || sort.key === 'exited_pct') {
+      const getPct = h => {
+        const p = parseFloat(h.pnl_percent);
+        if (!isNaN(p)) return p;
+        const ba = parseFloat(h.total_buy_amount);
+        return ba > 0 ? parseFloat(h.realized_pnl) / ba * 100 : 0;
+      };
+      av = getPct(a); bv = getPct(b);
+    }
+    else { av = parseFloat(a[sort.key] || 0); bv = parseFloat(b[sort.key] || 0); }
+    if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    if (isNaN(av)) av = 0; if (isNaN(bv)) bv = 0;
+    return sort.dir === 'asc' ? av - bv : bv - av;
+  });
+}
+
+async function exportToPDF({ userName, portfolio, month, year, include = { active: true, exited: true }, charts = {}, sort = null }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
@@ -125,10 +147,10 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
 
   const tableX = panelX + panelW + 4;
   const tableW = W - tableX - 6;
-  const allRows = [
+  const allRows = sortHoldings([
     ...(include.active ? activeHoldings : []),
     ...(include.exited ? exitedHoldings : []),
-  ];
+  ], sort);
 
   const tableBody = allRows.map(h => {
     const isActive = h.status === 'active';
@@ -337,6 +359,52 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
   }
 
   doc.save(`${(userName || 'portfolio').replace(/\s+/g, '_')}_report_${monthName}_${year}.pdf`);
+}
+
+function exportToExcel({ userName, active, exited, fy = null, sort = null }) {
+  active  = sortHoldings(active,  sort);
+  exited  = sortHoldings(exited,  sort);
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const fmtNum  = n => parseFloat(parseFloat(n || 0).toFixed(2));
+
+  const activeRows = active.map(h => ({
+    Symbol:          h.symbol,
+    Name:            h.stock_name,
+    Sector:          h.sector || '—',
+    'Market Cap':    h.market_cap_category || '—',
+    'Buy Date':      fmtDate(h.first_buy_date),
+    Quantity:        fmtNum(h.quantity),
+    'Avg Buy (₹)':   fmtNum(h.avg_buy_price),
+    'Current Price (₹)': fmtNum(h.current_price),
+    'Current Value (₹)': fmtNum(h.current_value),
+    'Unrealized P&L (₹)': fmtNum(h.unrealized_pnl),
+    'P&L %':         fmtNum(h.pnl_percent),
+  }));
+
+  const exitedRows = exited.map(h => {
+    const buyAmt = parseFloat(h.total_buy_amount || 0);
+    const pct    = buyAmt > 0 ? parseFloat(h.realized_pnl || 0) / buyAmt * 100 : 0;
+    return {
+      Symbol:           h.symbol,
+      Name:             h.stock_name,
+      Sector:           h.sector || '—',
+      'Market Cap':     h.market_cap_category || '—',
+      Shares:           fmtNum(h.total_bought_quantity),
+      'Avg Buy (₹)':    fmtNum(h.avg_buy_price),
+      'Amt Invested (₹)': fmtNum(h.total_buy_amount),
+      'Buy Date':       fmtDate(h.first_buy_date),
+      'Sell Date':      fmtDate(h.last_sell_date),
+      'Realized P&L (₹)': fmtNum(h.realized_pnl),
+      'P&L %':          fmtNum(pct),
+    };
+  });
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(activeRows), 'Active Holdings');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exitedRows), 'Exited Holdings');
+
+  const fileName = `${(userName || 'portfolio').replace(/\s+/g, '_')}_holdings${fy ? `_${fy}` : ''}.xlsx`;
+  XLSX.writeFile(wb, fileName);
 }
 
 const COLORS = [
@@ -609,6 +677,10 @@ function HoldingsDetail({ userId, userName }) {
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
   const [exportInclude, setExportInclude] = useState({ active: true, exited: true });
   const [exportCharts, setExportCharts] = useState({ allocation: false, sector: false, marketCap: false });
+  const [excelDialog, setExcelDialog] = useState(false);
+  const [excelAll, setExcelAll] = useState(true);
+  const [excelStartFY, setExcelStartFY] = useState('');
+  const [excelEndFY, setExcelEndFY] = useState('');
 
   const handleSort = (col) => {
     setSort(s => ({ key: col, dir: s.key === col && s.dir === 'desc' ? 'asc' : 'desc' }));
@@ -640,7 +712,10 @@ function HoldingsDetail({ userId, userName }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={() => setExcelDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
+          <Download size={14} /> Export Excel
+        </button>
         <button onClick={() => setExportDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
           <Download size={14} /> Export PDF
         </button>
@@ -956,6 +1031,76 @@ function HoldingsDetail({ userId, userName }) {
         })()}
       </Modal>
 
+      <Modal open={excelDialog} onClose={() => setExcelDialog(false)} title="Export Excel" size="sm">
+        {(() => {
+          const now = new Date();
+          const curFY = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+          const minFY = 2015;
+          const startFY = parseInt(excelStartFY) || curFY;
+          const endFY   = parseInt(excelEndFY)   || curFY;
+          const doExport = () => {
+            let filteredActive = active;
+            let filteredExited = exited;
+            if (!excelAll) {
+              const start = new Date(`${startFY}-04-01`);
+              const end   = new Date(`${endFY + 1}-03-31T23:59:59`);
+              filteredActive = active.filter(h => {
+                const d = h.first_buy_date ? new Date(h.first_buy_date) : null;
+                return d && d >= start && d <= end;
+              });
+              filteredExited = exited.filter(h => {
+                const d = h.last_sell_date ? new Date(h.last_sell_date) : null;
+                return d && d >= start && d <= end;
+              });
+            }
+            const fyLabel = excelAll ? null : startFY === endFY
+              ? `FY${startFY}-${String(startFY + 1).slice(2)}`
+              : `FY${startFY}-${String(endFY + 1).slice(2)}`;
+            exportToExcel({ userName, active: filteredActive, exited: filteredExited, fy: fyLabel, sort });
+            setExcelDialog(false);
+          };
+
+          const YearPicker = ({ label, value, onChange, min, max }) => (
+            <div>
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{label}</p>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => onChange(Math.max(min, value - 1))}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 font-bold text-lg leading-none">−</button>
+                <span className="flex-1 text-center text-sm font-semibold text-gray-900 dark:text-white">
+                  FY {value}–{String(value + 1).slice(2)}
+                </span>
+                <button type="button" onClick={() => onChange(Math.min(max, value + 1))}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 font-bold text-lg leading-none">+</button>
+              </div>
+            </div>
+          );
+
+          return (
+            <div className="space-y-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={excelAll} onChange={e => setExcelAll(e.target.checked)} className="accent-brand-600 w-4 h-4" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">All years</span>
+              </label>
+              {!excelAll && (
+                <div className="space-y-3">
+                  <YearPicker label="Start FY" value={startFY} min={minFY} max={endFY}
+                    onChange={v => setExcelStartFY(String(v))} />
+                  <YearPicker label="End FY" value={endFY} min={startFY} max={curFY + 1}
+                    onChange={v => setExcelEndFY(String(v))} />
+                </div>
+              )}
+              <p className="text-xs text-gray-400">Active: filtered by buy date · Exited: filtered by sell date</p>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setExcelDialog(false)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={doExport} className="btn-primary flex-1 flex items-center justify-center gap-1.5">
+                  <Download size={14} /> Download
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
       <Modal open={exportDialog} onClose={() => setExportDialog(false)} title="Export PDF Report" size="sm">
         <div className="space-y-4">
           <div>
@@ -992,7 +1137,7 @@ function HoldingsDetail({ userId, userName }) {
             <button onClick={() => setExportDialog(false)} className="btn-secondary flex-1">Cancel</button>
             <button disabled={!exportInclude.active && !exportInclude.exited} onClick={() => {
               setExportDialog(false);
-              exportToPDF({ userName, portfolio: data, month: exportMonth, year: exportYear, include: exportInclude, charts: exportCharts }).catch(console.error);
+              exportToPDF({ userName, portfolio: data, month: exportMonth, year: exportYear, include: exportInclude, charts: exportCharts, sort }).catch(console.error);
             }} className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <Download size={14} /> Export
             </button>
@@ -1004,15 +1149,16 @@ function HoldingsDetail({ userId, userName }) {
 }
 
 const USER_TYPES = [
-  { label: 'Employee', filter: u => u.role === 'admin' || u.role === 'super_admin' },
+  { label: 'Employee',    filter: u => u.user_type === 'employee' },
   { label: 'Shareholder', filter: u => u.user_type === 'shareholder' },
-  { label: 'Client', filter: u => u.user_type === 'client' },
+  { label: 'Client',      filter: u => u.user_type === 'client' },
 ];
 
 function getDefaultType(u) {
+  if (u?.user_type === 'employee') return 'Employee';
   if (u?.user_type === 'shareholder') return 'Shareholder';
   if (u?.user_type === 'client') return 'Client';
-  return 'Employee';
+  return 'Shareholder';
 }
 
 export default function PortfolioPage() {

@@ -5,14 +5,14 @@ import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 
+import UnifiedDashboard from './pages/UnifiedDashboard';
+
 // Client pages
-import ClientDashboard from './pages/client/DashboardPage';
 import PortfolioPage from './pages/client/PortfolioPage';
 import TransactionsPage from './pages/client/TransactionsPage';
 import FundsPage from './pages/client/FundsPage';
 
 // Shareholder pages
-import ShareholderDashboard from './pages/shareholder/DashboardPage';
 import ClientsPage from './pages/shareholder/ClientsPage';
 import ClientDetailPage from './pages/shareholder/ClientDetailPage';
 import DematAccountPage from './pages/shareholder/DematAccountPage';
@@ -33,6 +33,7 @@ import CompanyDashboardPage from './pages/company/CompanyDashboardPage';
 import IdeasPage from './pages/shared/IdeasPage';
 import MoversPage from './pages/shared/MoversPage';
 import TradeRequestsPage from './pages/shared/TradeRequestsPage';
+import TodaysDataPage from './pages/shared/TodaysDataPage';
 
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
@@ -54,13 +55,12 @@ function ProtectedRoutes() {
 
   const isShareholder = user.user_type === 'shareholder';
   const isAdmin = user.role === 'admin' || user.role === 'super_admin';
-  const isSuperAdmin = user.role === 'super_admin';
 
   return (
     <Layout>
       <Routes>
-        {/* Dashboard — role-based */}
-        <Route path="/dashboard" element={isShareholder ? <ShareholderDashboard /> : <ClientDashboard />} />
+        {/* Dashboard — unified */}
+        <Route path="/dashboard" element={<UnifiedDashboard />} />
 
         {/* Portfolio & Transactions (both types) */}
         <Route path="/portfolio" element={<PortfolioPage />} />
@@ -72,6 +72,9 @@ function ProtectedRoutes() {
 
         {/* Movers — all users */}
         <Route path="/movers" element={<MoversPage />} />
+
+        {/* Today's Data — all users */}
+        <Route path="/todays-data" element={<TodaysDataPage />} />
 
         {/* Trade Requests — shareholders and admins only */}
         {(isShareholder || isAdmin) && <Route path="/trade-requests" element={<TradeRequestsPage />} />}

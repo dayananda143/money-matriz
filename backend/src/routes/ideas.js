@@ -24,12 +24,14 @@ router.get('/', authenticate, async (req, res) => {
 // POST create idea
 router.post('/', authenticate, async (req, res) => {
   if (!canAccess(req.user)) return res.status(403).json({ error: 'Forbidden' });
-  const { title, content } = req.body;
+  const { title, content, status } = req.body;
   if (!title || !content) return res.status(400).json({ error: 'title and content required' });
+  const allowedStatuses = isAdmin(req.user) ? ['pending', 'future_work', 'implemented'] : ['pending', 'future_work'];
+  const ideaStatus = (status && allowedStatuses.includes(status)) ? status : 'pending';
   try {
     const { rows } = await query(
-      `INSERT INTO ideas (user_id, title, content) VALUES ($1, $2, $3) RETURNING *`,
-      [req.user.id, title, content]
+      `INSERT INTO ideas (user_id, title, content, status) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.user.id, title, content, ideaStatus]
     );
     const { rows: [idea] } = await query(
       `SELECT i.*, u.name AS author_name, u.role AS author_role FROM ideas i JOIN users u ON u.id = i.user_id WHERE i.id = $1`,
@@ -47,8 +49,8 @@ router.put('/:id', authenticate, async (req, res) => {
     const { rows: [idea] } = await query(`SELECT * FROM ideas WHERE id = $1`, [req.params.id]);
     if (!idea) return res.status(404).json({ error: 'Idea not found' });
     if (idea.user_id !== req.user.id && !isAdmin(req.user)) return res.status(403).json({ error: 'Forbidden' });
-    if (status && !['pending', 'implemented'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
-    if (status === 'implemented' && !isAdmin(req.user)) return res.status(403).json({ error: 'Only admins can mark as implemented' });
+    if (status && !['pending', 'future_work', 'implemented'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    if (status && status === 'implemented' && !isAdmin(req.user)) return res.status(403).json({ error: 'Only admins can mark as implemented' });
     const { rows } = await query(
       `UPDATE ideas SET title = COALESCE($1, title), content = COALESCE($2, content), status = COALESCE($3, status), updated_at = NOW() WHERE id = $4 RETURNING *`,
       [title || null, content || null, status || null, req.params.id]

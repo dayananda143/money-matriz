@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
-import { Lightbulb, Pencil, Trash2, Plus, X, CheckCircle2, Clock, MessageCircle, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { Lightbulb, Pencil, Trash2, Plus, X, CheckCircle2, Clock, MessageCircle, Send, ChevronDown, ChevronUp, Check, CalendarClock } from 'lucide-react';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmt } from '../../utils/format';
 
 const STATUS_CONFIG = {
   pending:     { label: 'Pending',     icon: Clock,         cls: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' },
+  future_work: { label: 'Future Work', icon: CalendarClock, cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
   implemented: { label: 'Implemented', icon: CheckCircle2,  cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
 };
 
@@ -170,7 +171,7 @@ function CommentsSection({ ideaId, currentUser }) {
   );
 }
 
-function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
+function IdeaCard({ idea, currentUser, onEdit, onDelete, onSetStatus }) {
   const isOwner = idea.user_id === currentUser.id;
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'super_admin';
   const canModify = isOwner || isAdmin;
@@ -185,11 +186,24 @@ function IdeaCard({ idea, currentUser, onEdit, onDelete, onToggleStatus }) {
         {canModify && (
           <div className="flex items-center gap-1 flex-shrink-0">
             {isAdmin && (
-              <button onClick={() => onToggleStatus(idea)}
-                title={idea.status === 'pending' ? 'Mark as Implemented' : 'Mark as Pending'}
-                className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${idea.status === 'implemented' ? 'text-green-500' : 'text-gray-400 hover:text-green-600'}`}>
-                <CheckCircle2 size={13} />
-              </button>
+              <>
+                <button
+                  onClick={() => onSetStatus(idea, idea.status === 'future_work' ? 'pending' : 'future_work')}
+                  title={idea.status === 'future_work' ? 'Move back to Pending' : 'Move to Future Work'}
+                  className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+                    idea.status === 'future_work' ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'
+                  }`}>
+                  <CalendarClock size={13} />
+                </button>
+                <button
+                  onClick={() => onSetStatus(idea, idea.status === 'implemented' ? 'pending' : 'implemented')}
+                  title={idea.status === 'implemented' ? 'Move back to Pending' : 'Mark as Implemented'}
+                  className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+                    idea.status === 'implemented' ? 'text-green-500' : 'text-gray-400 hover:text-green-600'
+                  }`}>
+                  <CheckCircle2 size={13} />
+                </button>
+              </>
             )}
             <button onClick={() => onEdit(idea)} className="p-1.5 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               <Pencil size={13} />
@@ -262,15 +276,16 @@ function IdeaModal({ idea, open, onClose, onSaved, isAdmin }) {
             <textarea className="input min-h-[120px] resize-y" placeholder="Describe your idea..." value={form.content}
               onChange={e => setForm(f => ({ ...f, content: e.target.value }))} required />
           </div>
-          {isAdmin && <div>
+          <div>
             <label className="label">Status</label>
             <div className="flex gap-2">
-              {Object.entries(STATUS_CONFIG).map(([val, cfg]) => (
+              {Object.entries(STATUS_CONFIG).filter(([val]) => isAdmin || val !== 'implemented').map(([val, cfg]) => (
                 <button key={val} type="button"
                   onClick={() => setForm(f => ({ ...f, status: val }))}
                   className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                     form.status === val
                       ? val === 'implemented' ? 'bg-green-50 border-green-400 text-green-700 dark:bg-green-900/30 dark:border-green-600 dark:text-green-400'
+                      : val === 'future_work' ? 'bg-blue-50 border-blue-400 text-blue-700 dark:bg-blue-900/30 dark:border-blue-600 dark:text-blue-400'
                                               : 'bg-yellow-50 border-yellow-400 text-yellow-700 dark:bg-yellow-900/30 dark:border-yellow-600 dark:text-yellow-400'
                       : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}>
@@ -278,7 +293,7 @@ function IdeaModal({ idea, open, onClose, onSaved, isAdmin }) {
                 </button>
               ))}
             </div>
-          </div>}
+          </div>
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary flex-1">
@@ -299,7 +314,7 @@ export default function IdeasPage() {
   const [editIdea, setEditIdea] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('pending');
 
   useEffect(() => {
     api.get('/ideas').then(r => setIdeas(r.data)).catch(console.error).finally(() => setLoading(false));
@@ -310,8 +325,7 @@ export default function IdeasPage() {
     else setIdeas(prev => prev.map(i => i.id === idea.id ? idea : i));
   };
 
-  const toggleStatus = async (idea) => {
-    const newStatus = idea.status === 'pending' ? 'implemented' : 'pending';
+  const setStatus = async (idea, newStatus) => {
     try {
       const { data } = await api.put(`/ideas/${idea.id}`, { status: newStatus });
       setIdeas(prev => prev.map(i => i.id === idea.id ? data : i));
@@ -349,10 +363,10 @@ export default function IdeasPage() {
         </button>
       </div>
 
-      <div className="flex gap-2">
-        {['all', 'pending', 'implemented'].map(s => (
+      <div className="flex gap-2 flex-wrap">
+        {['all', 'pending', 'future_work', 'implemented'].map(s => (
           <button key={s} onClick={() => setFilterStatus(s)}
-            className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-colors ${filterStatus === s ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${filterStatus === s ? 'bg-brand-600 text-white' : 'btn-secondary'}`}>
             {s === 'all' ? `All (${ideas.length})` : `${STATUS_CONFIG[s].label} (${ideas.filter(i => i.status === s).length})`}
           </button>
         ))}
@@ -376,7 +390,7 @@ export default function IdeasPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map(idea => (
-            <IdeaCard key={idea.id} idea={idea} currentUser={user} onEdit={openEdit} onDelete={setDeleteTarget} onToggleStatus={toggleStatus} />
+            <IdeaCard key={idea.id} idea={idea} currentUser={user} onEdit={openEdit} onDelete={setDeleteTarget} onSetStatus={setStatus} />
           ))}
         </div>
       )}

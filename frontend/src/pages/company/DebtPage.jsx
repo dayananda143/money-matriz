@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, Plus, Edit2, Trash2, Landmark, CreditCard, Search, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
 import api from '../../api';
@@ -20,6 +20,7 @@ function SortIcon({ col, sort }) {
 }
 
 export default function DebtPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const readOnly = user?.role !== 'super_admin';
   const [records, setRecords] = useState([]);
@@ -175,7 +176,7 @@ export default function DebtPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/company" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><ArrowLeft size={20} /></Link>
+        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><ArrowLeft size={20} /></button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-red-50 dark:bg-red-900/20">

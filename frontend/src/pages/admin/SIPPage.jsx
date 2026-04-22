@@ -401,6 +401,7 @@ export default function SIPPage() {
 
   const [entries, setEntries] = useState([]);
   const [shareholderInfo, setShareholderInfo] = useState(null);
+  const [cashOnHand, setCashOnHand] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const [sipTypes, setSipTypes] = useState([]);
@@ -426,13 +427,16 @@ export default function SIPPage() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/sip')
-      .then(r => {
+    const sipId = targetId || user?.id;
+    Promise.all([
+      api.get('/sip'),
+      sipId ? api.get(`/sip/cash/${sipId}`).catch(() => ({ data: { cash_on_hand: 0 } })) : Promise.resolve({ data: { cash_on_hand: 0 } }),
+    ]).then(([r, cashRes]) => {
         const all = r.data;
         const filtered = targetId ? all.filter(p => p.shareholder_id === targetId) : all;
-        // Sort by date desc
         filtered.sort((a, b) => new Date(b.start_date || b.created_at) - new Date(a.start_date || a.created_at));
         setEntries(filtered);
+        setCashOnHand(parseFloat(cashRes.data.cash_on_hand || 0));
         if (targetId && !shareholderInfo) {
           const match = filtered[0] || all.find(p => p.shareholder_id === targetId);
           if (match) setShareholderInfo({ id: targetId, name: match.shareholder_name, email: match.shareholder_email });
@@ -601,9 +605,9 @@ export default function SIPPage() {
 
       {/* Summary cards */}
       {!loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Net Invested</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total SIP Amount</p>
             <p className="text-xl font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</p>
             <p className="text-xs text-gray-400 mt-1">deposits − withdrawals</p>
           </div>
@@ -622,6 +626,13 @@ export default function SIPPage() {
             <p className="text-xl font-bold text-red-600 dark:text-red-400">{fmt.currency(withdrawTotal)}</p>
             <p className="text-xs text-gray-400 mt-1">{entries.filter(e => e.sip_type === 'withdraw').length} entries</p>
           </div>
+          {cashOnHand !== null && (
+            <div className={`rounded-xl p-4 border ${cashOnHand >= 0 ? 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700' : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/40'}`}>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Cash on Hand</p>
+              <p className={`text-xl font-bold ${cashOnHand >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt.currency(cashOnHand)}</p>
+              <p className="text-xs text-gray-400 mt-1">SIP − deployed</p>
+            </div>
+          )}
         </div>
       )}
 

@@ -9,6 +9,7 @@ import { SkeletonPageHeader, SkeletonStatCards, SkeletonFilterPills, SkeletonTab
 import Modal from '../../components/ui/Modal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -252,6 +253,70 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   doc.save(`${client?.name?.replace(/\s+/g, '_') || 'client'}_report_${monthName}_${year}.pdf`);
 }
 
+function exportToExcel({ client, portfolio, transactions, funds }) {
+  const wb = XLSX.utils.book_new();
+  const holdings = portfolio?.holdings || [];
+  const activeHoldings = holdings.filter(h => h.status === 'active');
+  const exitedHoldings = holdings.filter(h => h.status === 'exited');
+
+  // Active Holdings sheet
+  const activeRows = activeHoldings.map(h => ({
+    'Symbol': h.symbol,
+    'Name': h.stock_name || '',
+    'Buy Date': h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '',
+    'Qty': parseFloat(h.quantity),
+    'Avg Buy Price': parseFloat(h.avg_buy_price),
+    'Current Price': parseFloat(h.current_price),
+    'Bought Value': parseFloat(h.total_buy_amount),
+    'Current Value': parseFloat(h.current_value),
+    'Unrealized P&L': parseFloat(h.unrealized_pnl),
+    'P&L %': parseFloat(h.pnl_percent),
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(activeRows), 'Active Holdings');
+
+  // Exited Holdings sheet
+  const exitedRows = exitedHoldings.map(h => {
+    const pct = parseFloat(h.total_buy_amount) > 0
+      ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0;
+    return {
+      'Symbol': h.symbol,
+      'Name': h.stock_name || '',
+      'Buy Date': h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '',
+      'Sell Date': h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '',
+      'Qty Bought': parseFloat(h.total_bought_quantity),
+      'Avg Buy Price': parseFloat(h.avg_buy_price),
+      'Invested Amount': parseFloat(h.total_buy_amount),
+      'Realized P&L': parseFloat(h.realized_pnl),
+      'P&L %': parseFloat(pct.toFixed(2)),
+    };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(exitedRows), 'Exited Holdings');
+
+  // Transactions sheet
+  const txRows = transactions.map(t => ({
+    'Date': fmt.datetime(t.executed_at),
+    'Type': t.type?.toUpperCase(),
+    'Symbol': t.symbol,
+    'Qty': parseFloat(t.quantity),
+    'Price': parseFloat(t.price),
+    'Total': parseFloat(t.total),
+    'Notes': t.notes || '',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(txRows), 'Transactions');
+
+  // Funds sheet
+  const fundRows = funds.map(f => ({
+    'Date': fmt.date(f.executed_at),
+    'Type': f.type?.toUpperCase(),
+    'Amount': parseFloat(f.amount),
+    'Notes': f.notes || '',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(fundRows), 'Funds');
+
+  const name = (client?.name || 'client').replace(/\s+/g, '_').toLowerCase();
+  XLSX.writeFile(wb, `${name}_portfolio_${new Date().getFullYear()}.xlsx`);
+}
+
 function SortTh({ label, col, sort, onSort }) {
   const active = sort.key === col;
   return (
@@ -401,6 +466,10 @@ export default function ClientDetailPage() {
           <button onClick={() => setExportDialog(true)}
             className="btn-secondary text-sm flex items-center gap-1.5">
             <Download size={14} /> Export PDF
+          </button>
+          <button onClick={() => exportToExcel({ client, portfolio, transactions, funds })}
+            className="btn-secondary text-sm flex items-center gap-1.5">
+            <Download size={14} /> Export Excel
           </button>
           {(isAdmin || isMyClient) && (
             <>

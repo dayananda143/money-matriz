@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Edit2, Trash2, Landmark, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, TrendingUp } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -34,6 +34,7 @@ function MaturityBadge({ date }) {
 }
 
 export default function DepositsPage() {
+  const navigate = useNavigate();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -152,7 +153,7 @@ export default function DepositsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link to="/company" className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><ArrowLeft size={20} /></Link>
+        <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><ArrowLeft size={20} /></button>
         <div className="flex-1">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-teal-50 dark:bg-teal-900/20">

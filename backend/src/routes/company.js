@@ -61,7 +61,10 @@ const ensureTable = query(`
 ).catch(console.error);
 
 // GET records by category
-router.get('/', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/', authenticate, async (req, res) => {
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+  const isShareholder = req.user.user_type === 'shareholder';
+  if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
   try {
     const { category } = req.query;
     let sql = `SELECT cr.*,
@@ -260,7 +263,10 @@ router.get('/contributors/by-user/:userId', authenticate, requireRole('admin', '
 });
 
 // GET aggregated shares summary per shareholder
-router.get('/shares-summary', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/shares-summary', authenticate, async (req, res) => {
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+  const isShareholder = req.user.user_type === 'shareholder';
+  if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
   try {
     const { rows } = await query(
       `SELECT u.id, u.name, u.email, COALESCE(SUM(sc.amount), 0) as total_amount

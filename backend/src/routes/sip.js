@@ -89,6 +89,27 @@ router.delete('/participants/:shareholderId', authenticate, requireRole('admin',
 
 // ── SIP Plans ──────────────────────────────────────────────────────────────
 
+// GET cash on hand for a shareholder — matches Portfolio page formula
+router.get('/cash/:shareholderId', authenticate, async (req, res) => {
+  if (!canManage(req.user)) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { shareholderId } = req.params;
+    const [sipRes, holdingsRes] = await Promise.all([
+      query(`
+        SELECT COALESCE(SUM(CASE WHEN sip_type = 'withdraw' THEN -amount ELSE amount END), 0) AS sip_net
+        FROM sip_plans WHERE shareholder_id = $1
+      `, [shareholderId]),
+      query(`
+        SELECT COALESCE(SUM(h.quantity * h.avg_buy_price), 0) AS active_invested
+        FROM holdings h WHERE h.user_id = $1 AND h.quantity > 0
+      `, [shareholderId]),
+    ]);
+    const sipNet       = parseFloat(sipRes.rows[0].sip_net || 0);
+    const activeInvested = parseFloat(holdingsRes.rows[0].active_invested || 0);
+    res.json({ cash_on_hand: parseFloat((sipNet - activeInvested).toFixed(2)) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET all SIP plans
 router.get('/', authenticate, async (req, res) => {
   if (!canManage(req.user)) return res.status(403).json({ error: 'Forbidden' });

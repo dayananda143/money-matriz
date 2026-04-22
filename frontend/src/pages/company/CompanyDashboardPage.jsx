@@ -143,7 +143,9 @@ export default function CompanyDashboardPage() {
               const sharesTotal = shares.by_type.reduce((s, x) => s + x.total, 0);
               const pct = sharesTotal > 0 ? ((t.total / sharesTotal) * 100).toFixed(1) : '0.0';
               return (
-                <div key={t.share_type} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800">
+                <button key={t.share_type}
+                  onClick={() => navigate('/company/shares', { state: { readOnly: !isAdmin, filterType: t.share_type } })}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left w-full">
                   <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{t.share_type}</p>
@@ -153,7 +155,7 @@ export default function CompanyDashboardPage() {
                     <p className="text-sm font-bold text-gray-900 dark:text-white">{fmt.currency(t.total)}</p>
                     <span className="text-xs font-semibold text-violet-600 dark:text-violet-400">{pct}%</span>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>

@@ -307,4 +307,117 @@ router.get('/movers/holders', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/dashboard/today — Nifty, Sensex + top 2 gainers/losers across whole active portfolio
+router.get('/today', authenticate, async (req, res) => {
+  try {
+    const { id: userId, role, user_type } = req.user;
+    const isAdmin = role === 'admin' || role === 'super_admin';
+    const isShareholder = user_type === 'shareholder';
+
+    // Build holdings query based on role
+    let holdingsQuery, holdingsParams;
+    if (isAdmin) {
+      holdingsQuery = `
+        SELECT s.symbol, s.name AS stock_name, s.current_price, s.previous_close,
+               SUM(h.quantity) AS total_quantity,
+               SUM(h.quantity * h.avg_buy_price) AS total_cost
+        FROM holdings h JOIN stocks s ON s.id = h.stock_id
+        WHERE h.quantity > 0
+        GROUP BY s.id, s.symbol, s.name, s.current_price, s.previous_close
+      `;
+      holdingsParams = [];
+    } else if (isShareholder) {
+      holdingsQuery = `
+        SELECT s.symbol, s.name AS stock_name, s.current_price, s.previous_close,
+               SUM(h.quantity) AS total_quantity,
+               SUM(h.quantity * h.avg_buy_price) AS total_cost
+        FROM holdings h JOIN stocks s ON s.id = h.stock_id
+        WHERE h.quantity > 0
+          AND (h.user_id = $1 OR h.user_id IN (
+            SELECT client_id FROM relationships WHERE shareholder_id = $1
+          ))
+        GROUP BY s.id, s.symbol, s.name, s.current_price, s.previous_close
+      `;
+      holdingsParams = [userId];
+    } else {
+      holdingsQuery = `
+        SELECT s.symbol, s.name AS stock_name, s.current_price, s.previous_close,
+               SUM(h.quantity) AS total_quantity,
+               SUM(h.quantity * h.avg_buy_price) AS total_cost
+        FROM holdings h JOIN stocks s ON s.id = h.stock_id
+        WHERE h.quantity > 0 AND h.user_id = $1
+        GROUP BY s.id, s.symbol, s.name, s.current_price, s.previous_close
+      `;
+      holdingsParams = [userId];
+    }
+
+    // Fetch indices + portfolio holdings in parallel
+    const [niftyRaw, sensexRaw, { rows }] = await Promise.all([
+      yf.quote('^NSEI', {}, { validateResult: false }).catch(() => null),
+      yf.quote('^BSESN', {}, { validateResult: false }).catch(() => null),
+      query(holdingsQuery, holdingsParams),
+    ]);
+
+    const formatIndex = (q, label, shortLabel) => ({
+      label,
+      short: shortLabel,
+      price:         q?.regularMarketPrice ?? null,
+      change:        q?.regularMarketChange ?? 0,
+      change_percent: q?.regularMarketChangePercent ?? 0,
+      previous_close: q?.regularMarketPreviousClose ?? null,
+    });
+
+    const indices = {
+      nifty:  formatIndex(niftyRaw,  'NIFTY 50', 'NIFTY'),
+      sensex: formatIndex(sensexRaw, 'BSE SENSEX', 'SENSEX'),
+    };
+
+    if (!rows.length) return res.json({ indices, gainers: [], losers: [] });
+
+    // Fetch live prices for portfolio stocks
+    const symbols = rows.map(r => r.symbol);
+    const live = await fetchLivePrices(symbols);
+
+    let totalMarketValue = 0;
+    let totalCost = 0;
+
+    const movers = rows.map(r => {
+      const liveData      = live[r.symbol];
+      const currentPrice  = liveData?.price        ?? parseFloat(r.current_price);
+      const previousClose = liveData?.previousClose ?? parseFloat(r.previous_close);
+      const change        = liveData?.change        ?? (currentPrice - previousClose);
+      const changePercent = liveData?.changePercent ?? (previousClose > 0 ? (change / previousClose * 100) : 0);
+      const qty           = parseFloat(r.total_quantity);
+      const cost          = parseFloat(r.total_cost);
+      totalMarketValue   += qty * currentPrice;
+      totalCost          += cost;
+      return {
+        symbol:         r.symbol,
+        stock_name:     r.stock_name,
+        current_price:  currentPrice,
+        change:         parseFloat(change.toFixed(4)),
+        change_percent: parseFloat(changePercent.toFixed(2)),
+      };
+    }).sort((a, b) => b.change_percent - a.change_percent);
+
+    const unrealizedPnl    = totalMarketValue - totalCost;
+    const unrealizedPnlPct = totalCost > 0 ? (unrealizedPnl / totalCost * 100) : 0;
+
+    res.json({
+      indices,
+      portfolio: {
+        market_value:       parseFloat(totalMarketValue.toFixed(2)),
+        invested:           parseFloat(totalCost.toFixed(2)),
+        unrealized_pnl:     parseFloat(unrealizedPnl.toFixed(2)),
+        unrealized_pnl_pct: parseFloat(unrealizedPnlPct.toFixed(2)),
+      },
+      gainers: movers.filter(m => m.change_percent > 0).slice(0, 2),
+      losers:  movers.filter(m => m.change_percent < 0).reverse().slice(0, 2),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;
