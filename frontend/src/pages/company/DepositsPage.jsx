@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit2, Trash2, Landmark, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Landmark, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, TrendingUp, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -10,6 +10,8 @@ import Modal from '../../components/ui/Modal';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const EMPTY = { description: '', amount: '', bank_value: '', interest_rate: '', record_date: today(), maturity_date: '', share_type: 'FD', scheme: '', notes: '' };
 const DEPOSIT_TYPES = ['FD', 'RD'];
+const DEP_COLS = ['type','bank','principal','bank_value','rate','interest','start','maturity'];
+const DEP_COL_LABEL = { type:'Type', bank:'Bank', principal:'Principal', bank_value:'Bank Value', rate:'Rate', interest:'Interest', start:'Start', maturity:'Maturity' };
 
 function SortIcon({ col, sort }) {
   if (sort.col !== col) return <ChevronsUpDown size={13} className="text-gray-400 ml-1 inline" />;
@@ -48,6 +50,14 @@ export default function DepositsPage() {
   const [sort, setSort] = useState({ col: 'record_date', dir: 'desc' });
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('company_deposits_cols') || 'null'); return s ? new Set(s) : new Set(DEP_COLS); } catch { return new Set(DEP_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('company_deposits_cols', JSON.stringify([...next])); return next;
+  });
 
   const load = () => {
     setLoading(true);
@@ -227,39 +237,45 @@ export default function DepositsPage() {
               </div>
             </div>
           </div>
-          <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3">
-            <Plus size={15} /> Add Deposit
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {DEP_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {DEP_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3">
+              <Plus size={15} /> Add Deposit
+            </button>
+          </div>
         </div>
         <Table>
           <thead>
             <tr>
-              <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">
-                Name <SortIcon col="description" sort={sort} />
-              </Th>
-              <Th>Type</Th>
-              <Th>Bank</Th>
-              <Th onClick={() => toggleSort('amount')} className="cursor-pointer select-none whitespace-nowrap">
-                Principal <SortIcon col="amount" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('bank_value')} className="cursor-pointer select-none whitespace-nowrap">
-                Bank Value <SortIcon col="bank_value" sort={sort} />
-              </Th>
-              <Th>Rate</Th>
-              <Th onClick={() => toggleSort('interest')} className="cursor-pointer select-none whitespace-nowrap">
-                Interest <SortIcon col="interest" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">
-                Start <SortIcon col="record_date" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('maturity_date')} className="cursor-pointer select-none whitespace-nowrap">
-                Maturity <SortIcon col="maturity_date" sort={sort} />
-              </Th>
+              <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">Name <SortIcon col="description" sort={sort} /></Th>
+              {visibleCols.has('type') && <Th>Type</Th>}
+              {visibleCols.has('bank') && <Th>Bank</Th>}
+              {visibleCols.has('principal') && <Th onClick={() => toggleSort('amount')} className="cursor-pointer select-none whitespace-nowrap">Principal <SortIcon col="amount" sort={sort} /></Th>}
+              {visibleCols.has('bank_value') && <Th onClick={() => toggleSort('bank_value')} className="cursor-pointer select-none whitespace-nowrap">Bank Value <SortIcon col="bank_value" sort={sort} /></Th>}
+              {visibleCols.has('rate') && <Th>Rate</Th>}
+              {visibleCols.has('interest') && <Th onClick={() => toggleSort('interest')} className="cursor-pointer select-none whitespace-nowrap">Interest <SortIcon col="interest" sort={sort} /></Th>}
+              {visibleCols.has('start') && <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">Start <SortIcon col="record_date" sort={sort} /></Th>}
+              {visibleCols.has('maturity') && <Th onClick={() => toggleSort('maturity_date')} className="cursor-pointer select-none whitespace-nowrap">Maturity <SortIcon col="maturity_date" sort={sort} /></Th>}
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && <EmptyRow cols={10} message={hasFilters ? 'No deposits match your filters' : 'No deposits added yet'} />}
+            {!filtered.length && <EmptyRow cols={visibleCols.size + 2} message={hasFilters ? 'No deposits match your filters' : 'No deposits added yet'} />}
             {paginated.map(r => {
               const principal = parseFloat(r.amount || 0);
               const bankVal = parseFloat(r.bank_value || r.amount || 0);
@@ -268,36 +284,14 @@ export default function DepositsPage() {
               return (
                 <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
-                  <Td>
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.share_type === 'RD' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400'}`}>
-                      {r.share_type || 'FD'}
-                    </span>
-                  </Td>
-                  <Td className="text-gray-600 dark:text-gray-400 text-sm">{r.scheme || '—'}</Td>
-                  <Td className="font-semibold text-gray-900 dark:text-white">{fmt.currency(principal)}</Td>
-                  <Td className="font-semibold text-teal-600 dark:text-teal-400">
-                    {r.bank_value != null ? fmt.currency(bankVal) : <span className="text-gray-400 text-xs">Not set</span>}
-                  </Td>
-                  <Td className="text-gray-600 dark:text-gray-400 text-sm">
-                    {r.transaction_type ? <span className="font-medium">{r.transaction_type}%</span> : <span className="text-gray-400 text-xs">—</span>}
-                  </Td>
-                  <Td>
-                    {r.bank_value != null ? (
-                      <span className={`font-semibold ${interest >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {interest >= 0 ? '+' : ''}{fmt.currency(interest)}
-                        <span className="text-xs font-normal text-gray-400 ml-1">({pct.toFixed(1)}%)</span>
-                      </span>
-                    ) : <span className="text-gray-400 text-xs">—</span>}
-                  </Td>
-                  <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
-                  <Td>
-                    {r.maturity_date ? (
-                      <div>
-                        <p className="text-xs text-gray-500 mb-0.5">{fmt.date(r.maturity_date)}</p>
-                        <MaturityBadge date={r.maturity_date} />
-                      </div>
-                    ) : <span className="text-gray-400 text-xs">—</span>}
-                  </Td>
+                  {visibleCols.has('type') && <Td><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.share_type === 'RD' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400'}`}>{r.share_type || 'FD'}</span></Td>}
+                  {visibleCols.has('bank') && <Td className="text-gray-600 dark:text-gray-400 text-sm">{r.scheme || '—'}</Td>}
+                  {visibleCols.has('principal') && <Td className="font-semibold text-gray-900 dark:text-white">{fmt.currency(principal)}</Td>}
+                  {visibleCols.has('bank_value') && <Td className="font-semibold text-teal-600 dark:text-teal-400">{r.bank_value != null ? fmt.currency(bankVal) : <span className="text-gray-400 text-xs">Not set</span>}</Td>}
+                  {visibleCols.has('rate') && <Td className="text-gray-600 dark:text-gray-400 text-sm">{r.transaction_type ? <span className="font-medium">{r.transaction_type}%</span> : <span className="text-gray-400 text-xs">—</span>}</Td>}
+                  {visibleCols.has('interest') && <Td>{r.bank_value != null ? <span className={`font-semibold ${interest >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{interest >= 0 ? '+' : ''}{fmt.currency(interest)}<span className="text-xs font-normal text-gray-400 ml-1">({pct.toFixed(1)}%)</span></span> : <span className="text-gray-400 text-xs">—</span>}</Td>}
+                  {visibleCols.has('start') && <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>}
+                  {visibleCols.has('maturity') && <Td>{r.maturity_date ? <div><p className="text-xs text-gray-500 mb-0.5">{fmt.date(r.maturity_date)}</p><MaturityBadge date={r.maturity_date} /></div> : <span className="text-gray-400 text-xs">—</span>}</Td>}
                   <Td>
                     <div className="flex items-center gap-1">
                       <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={14} /></button>

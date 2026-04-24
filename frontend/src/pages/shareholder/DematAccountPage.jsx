@@ -3,8 +3,9 @@ import api from '../../api';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
-import { Landmark, ChevronLeft, ChevronRight, Search, Download } from 'lucide-react';
+import { Landmark, ChevronLeft, ChevronRight, Search, Download, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -473,6 +474,7 @@ function DematContent({ userId, userName }) {
 
 export default function DematAccountPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const [users, setUsers] = useState([]);
@@ -506,6 +508,9 @@ export default function DematAccountPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <ArrowLeft size={20} />
+          </button>
           <div className="w-10 h-10 rounded-xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center">
             <Landmark size={20} className="text-brand-600 dark:text-brand-400" />
           </div>

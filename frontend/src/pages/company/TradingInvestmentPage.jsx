@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, Users, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, Pencil } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, TrendingUp, Users, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, Pencil, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -12,6 +12,8 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const EMPTY = { description: '', amount: '', record_date: today(), notes: '' };
 const EMPTY_CONTRIBUTOR = { user_id: '', amount: '', notes: '' };
 const VIEWS = ['transactions', 'by_user'];
+const TI_COLS = ['description','users','total_invested','notes'];
+const TI_COL_LABEL = { description:'Description', users:'Users', total_invested:'Total Invested', notes:'Notes' };
 
 function SortIcon({ col, sort }) {
   if (sort.col !== col) return <ChevronsUpDown size={13} className="text-gray-400 ml-1 inline" />;
@@ -32,6 +34,18 @@ export default function TradingInvestmentPage() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('company_trading_cols') || 'null'); return s ? new Set(s) : new Set(TI_COLS); } catch { return new Set(TI_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('company_trading_cols', JSON.stringify([...next])); return next;
+  });
 
   // Filter & sort
   const [search, setSearch] = useState('');
@@ -69,6 +83,7 @@ export default function TradingInvestmentPage() {
 
   const toggleSort = (col) => {
     setSort(s => s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' });
+    setPage(1);
   };
 
   const filtered = useMemo(() => {
@@ -93,7 +108,11 @@ export default function TradingInvestmentPage() {
   }, [records, search, dateFrom, dateTo, sort]);
 
   const hasFilters = search || dateFrom || dateTo;
-  const clearFilters = () => { setSearch(''); setDateFrom(''); setDateTo(''); };
+  const clearFilters = () => { setSearch(''); setDateFrom(''); setDateTo(''); setPage(1); };
+  // reset page on search change handled inline
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / limit));
+  const paginated = filtered.slice((page - 1) * limit, page * limit);
 
   const loadUserRecords = async (userId) => {
     if (!userId) { setUserRecords([]); return; }
@@ -317,12 +336,12 @@ export default function TradingInvestmentPage() {
           <div className="relative flex-1 min-w-[180px]">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input className="input pl-9 py-2 text-sm" placeholder="Search description or notes..."
-              value={search} onChange={e => setSearch(e.target.value)} />
+              value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <div className="flex items-center gap-2">
-            <input type="date" className="input py-2 text-sm" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date" />
+            <input type="date" className="input py-2 text-sm" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} title="From date" />
             <span className="text-gray-400 text-sm">—</span>
-            <input type="date" className="input py-2 text-sm" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date" />
+            <input type="date" className="input py-2 text-sm" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} title="To date" />
           </div>
           {hasFilters && (
             <button onClick={clearFilters} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 whitespace-nowrap">
@@ -333,39 +352,55 @@ export default function TradingInvestmentPage() {
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-end px-4 pt-3 pb-1 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {TI_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {TI_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {[5, 10, 15, 20, 25].map(n => (
+                <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                  className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         <Table>
           <thead>
             <tr>
-              <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">
-                Date <SortIcon col="record_date" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">
-                Description <SortIcon col="description" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('contributor_count')} className="cursor-pointer select-none whitespace-nowrap">
-                Users <SortIcon col="contributor_count" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('total_contributed')} className="cursor-pointer select-none whitespace-nowrap">
-                Total Invested <SortIcon col="total_contributed" sort={sort} />
-              </Th>
-              <Th>Notes</Th>
+              <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">Date <SortIcon col="record_date" sort={sort} /></Th>
+              {visibleCols.has('description') && <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">Description <SortIcon col="description" sort={sort} /></Th>}
+              {visibleCols.has('users') && <Th onClick={() => toggleSort('contributor_count')} className="cursor-pointer select-none whitespace-nowrap">Users <SortIcon col="contributor_count" sort={sort} /></Th>}
+              {visibleCols.has('total_invested') && <Th onClick={() => toggleSort('total_contributed')} className="cursor-pointer select-none whitespace-nowrap">Total Invested <SortIcon col="total_contributed" sort={sort} /></Th>}
+              {visibleCols.has('notes') && <Th>Notes</Th>}
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && <EmptyRow cols={6} message={hasFilters ? 'No records match your filters' : 'No trading investment records yet'} />}
-            {filtered.map(r => (
+            {!filtered.length && <EmptyRow cols={visibleCols.size + 2} message={hasFilters ? 'No records match your filters' : 'No trading investment records yet'} />}
+            {paginated.map(r => (
               <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
-                <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
-                <Td>
-                  <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
-                    <Users size={13} className="text-blue-500" />
-                    {r.contributor_count || 0}
-                  </span>
-                </Td>
-                <Td className="font-semibold text-blue-600 dark:text-blue-400">{fmt.currency(r.total_contributed || 0)}</Td>
-                <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>
+                {visibleCols.has('description') && <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>}
+                {visibleCols.has('users') && <Td><span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300"><Users size={13} className="text-blue-500" />{r.contributor_count || 0}</span></Td>}
+                {visibleCols.has('total_invested') && <Td className="font-semibold text-blue-600 dark:text-blue-400">{fmt.currency(r.total_contributed || 0)}</Td>}
+                {visibleCols.has('notes') && <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>}
                 <Td>
                   <div className="flex items-center gap-1">
                     <button onClick={() => openContributors(r)} className="p-1 text-gray-400 hover:text-blue-600" title="Manage Users"><Users size={14} /></button>
@@ -377,6 +412,31 @@ export default function TradingInvestmentPage() {
             ))}
           </tbody>
         </Table>
+        {totalPages > 1 && (
+          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                <ChevronLeft size={14} />
+              </button>
+              {(() => {
+                const range = [];
+                for (let i = 1; i <= totalPages; i++) if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+                const out = []; let prev = null;
+                for (const p of range) { if (prev !== null && p - prev > 1) out.push('...' + p); out.push(p); prev = p; }
+                return out.map((p, i) => typeof p === 'string'
+                  ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                  : <button key={p} onClick={() => setPage(p)}
+                      className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{p}</button>
+                );
+              })()}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors">
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       </>

@@ -4,7 +4,7 @@ import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonStatCards, SkeletonTable } from '../../components/ui/Skeleton';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { ChevronLeft, ChevronRight, Search, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Download, Columns } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../../components/ui/Modal';
 import jsPDF from 'jspdf';
@@ -662,6 +662,10 @@ function SortTh({ label, col, sort, onSort }) {
   );
 }
 
+const ACTIVE_COLS  = ['name','sector','buy_date','qty','avg_buy','current_price','current_value','pnl','pnl_pct'];
+const EXITED_COLS  = ['name','sector','shares','avg_buy','amt_invested','buy_date','sell_date','realized_pnl','pnl_pct'];
+const COL_LABEL    = { name:'Name', sector:'Sector', buy_date:'Buy Date', qty:'Qty', avg_buy:'Avg Buy', current_price:'Current Price', current_value:'Current Value', pnl:'P&L', pnl_pct:'P&L %', shares:'Shares', amt_invested:'Amt Invested', sell_date:'Sell Date', realized_pnl:'Realized P&L' };
+
 function HoldingsDetail({ userId, userName }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -672,6 +676,34 @@ function HoldingsDetail({ userId, userName }) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('portfolio_visible_cols') || '{}');
+      return {
+        active: saved.active ? new Set(saved.active) : new Set(ACTIVE_COLS),
+        exited: saved.exited ? new Set(saved.exited) : new Set(EXITED_COLS),
+      };
+    } catch {
+      return { active: new Set(ACTIVE_COLS), exited: new Set(EXITED_COLS) };
+    }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+
+  const cols = tab === 'active' ? ACTIVE_COLS : EXITED_COLS;
+  const visible = visibleCols[tab];
+  const toggleCol = (col) => {
+    setVisibleCols(prev => {
+      const next = new Set(prev[tab]);
+      next.has(col) ? next.delete(col) : next.add(col);
+      const updated = { ...prev, [tab]: next };
+      localStorage.setItem('portfolio_visible_cols', JSON.stringify({
+        active: [...updated.active],
+        exited: [...updated.exited],
+      }));
+      return updated;
+    });
+  };
+  const colCount = visible.size + 1; // +1 for symbol always shown
   const [exportDialog, setExportDialog] = useState(false);
   const [exportMonth, setExportMonth] = useState(new Date().getMonth());
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
@@ -810,6 +842,23 @@ function HoldingsDetail({ userId, userName }) {
                     className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-36"
                   />
                 </div>
+                <div className="relative">
+                  <button onClick={() => setColMenuOpen(o => !o)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                    <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visible.size}</span>
+                  </button>
+                  {colMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                      {cols.map(col => (
+                        <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                          <input type="checkbox" checked={visible.has(col)} onChange={() => toggleCol(col)}
+                            className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                          {COL_LABEL[col]}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
                 <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
                   {PAGE_SIZES.map(n => (
@@ -826,32 +875,30 @@ function HoldingsDetail({ userId, userName }) {
               <Table>
                 <thead><tr>
                   <SortTh label="Symbol" col="symbol" sort={sort} onSort={handleSort} />
-                  <Th>Name</Th><Th>Sector</Th>
-                  <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />
-                  <SortTh label="Qty" col="quantity" sort={sort} onSort={handleSort} />
-                  <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />
-                  <SortTh label="Current Price" col="current_price" sort={sort} onSort={handleSort} />
-                  <SortTh label="Current Value" col="current_value" sort={sort} onSort={handleSort} />
-                  <SortTh label="P&L" col="unrealized_pnl" sort={sort} onSort={handleSort} />
-                  <SortTh label="P&L %" col="pnl_percent" sort={sort} onSort={handleSort} />
+                  {visible.has('name') && <Th>Name</Th>}
+                  {visible.has('sector') && <Th>Sector</Th>}
+                  {visible.has('buy_date') && <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />}
+                  {visible.has('qty') && <SortTh label="Qty" col="quantity" sort={sort} onSort={handleSort} />}
+                  {visible.has('avg_buy') && <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />}
+                  {visible.has('current_price') && <SortTh label="Current Price" col="current_price" sort={sort} onSort={handleSort} />}
+                  {visible.has('current_value') && <SortTh label="Current Value" col="current_value" sort={sort} onSort={handleSort} />}
+                  {visible.has('pnl') && <SortTh label="P&L" col="unrealized_pnl" sort={sort} onSort={handleSort} />}
+                  {visible.has('pnl_pct') && <SortTh label="P&L %" col="pnl_percent" sort={sort} onSort={handleSort} />}
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={10} message="No active holdings" />}
+                  {!paged.length && <EmptyRow cols={visible.size + 1} message="No active holdings" />}
                   {paged.map(h => (
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
-                      <Td>{h.stock_name}</Td>
-                      <Td>
-                        <span className="badge-blue">{h.sector || '—'}</span>
-                        {h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}
-                      </Td>
-                      <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
-                      <Td>{fmt.number(h.quantity, 2)}</Td>
-                      <Td>{fmt.currency(h.avg_buy_price)}</Td>
-                      <Td>{fmt.currency(h.current_price)}</Td>
-                      <Td className="font-medium">{fmt.currency(h.current_value)}</Td>
-                      <Td><span className={pnlColor(h.unrealized_pnl)}>{pnlSign(h.unrealized_pnl)}{fmt.currency(h.unrealized_pnl)}</span></Td>
-                      <Td><span className={pnlColor(h.pnl_percent)}>{pnlSign(h.pnl_percent)}{fmt.percent(h.pnl_percent)}</span></Td>
+                      {visible.has('name') && <Td>{h.stock_name}</Td>}
+                      {visible.has('sector') && <Td><span className="badge-blue">{h.sector || '—'}</span>{h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}</Td>}
+                      {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                      {visible.has('qty') && <Td>{fmt.number(h.quantity, 2)}</Td>}
+                      {visible.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
+                      {visible.has('current_price') && <Td>{fmt.currency(h.current_price)}</Td>}
+                      {visible.has('current_value') && <Td className="font-medium">{fmt.currency(h.current_value)}</Td>}
+                      {visible.has('pnl') && <Td><span className={pnlColor(h.unrealized_pnl)}>{pnlSign(h.unrealized_pnl)}{fmt.currency(h.unrealized_pnl)}</span></Td>}
+                      {visible.has('pnl_pct') && <Td><span className={pnlColor(h.pnl_percent)}>{pnlSign(h.pnl_percent)}{fmt.percent(h.pnl_percent)}</span></Td>}
                     </tr>
                   ))}
                 </tbody>
@@ -860,35 +907,33 @@ function HoldingsDetail({ userId, userName }) {
               <Table>
                 <thead><tr>
                   <SortTh label="Symbol" col="symbol" sort={sort} onSort={handleSort} />
-                  <Th>Name</Th><Th>Sector</Th>
-                  <SortTh label="Shares" col="total_bought_quantity" sort={sort} onSort={handleSort} />
-                  <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />
-                  <SortTh label="Amt Invested" col="total_buy_amount" sort={sort} onSort={handleSort} />
-                  <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />
-                  <SortTh label="Sell Date" col="last_sell_date" sort={sort} onSort={handleSort} />
-                  <SortTh label="Realized P&L" col="realized_pnl" sort={sort} onSort={handleSort} />
-                  <SortTh label="P&L %" col="exited_pct" sort={sort} onSort={handleSort} />
+                  {visible.has('name') && <Th>Name</Th>}
+                  {visible.has('sector') && <Th>Sector</Th>}
+                  {visible.has('shares') && <SortTh label="Shares" col="total_bought_quantity" sort={sort} onSort={handleSort} />}
+                  {visible.has('avg_buy') && <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />}
+                  {visible.has('amt_invested') && <SortTh label="Amt Invested" col="total_buy_amount" sort={sort} onSort={handleSort} />}
+                  {visible.has('buy_date') && <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />}
+                  {visible.has('sell_date') && <SortTh label="Sell Date" col="last_sell_date" sort={sort} onSort={handleSort} />}
+                  {visible.has('realized_pnl') && <SortTh label="Realized P&L" col="realized_pnl" sort={sort} onSort={handleSort} />}
+                  {visible.has('pnl_pct') && <SortTh label="P&L %" col="exited_pct" sort={sort} onSort={handleSort} />}
                 </tr></thead>
                 <tbody>
-                  {!paged.length && <EmptyRow cols={10} message="No exited positions" />}
+                  {!paged.length && <EmptyRow cols={visible.size + 1} message="No exited positions" />}
                   {paged.map(h => {
                     const buyAmt = parseFloat(h.total_buy_amount);
                     const pct = buyAmt > 0 ? (parseFloat(h.realized_pnl) / buyAmt * 100) : 0;
                     return (
                       <tr key={h.id} onClick={() => { setPatHolding(h); setPatTab('pat'); }} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
                         <Td><span className="font-bold text-gray-500 dark:text-gray-400">{h.symbol}</span></Td>
-                        <Td>{h.stock_name}</Td>
-                        <Td>
-                          <span className="badge-blue">{h.sector || '—'}</span>
-                          {h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}
-                        </Td>
-                        <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>
-                        <Td>{fmt.currency(h.avg_buy_price)}</Td>
-                        <Td>{fmt.currency(h.total_buy_amount)}</Td>
-                        <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
-                        <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>
-                        <Td><span className={pnlColor(h.realized_pnl)}>{pnlSign(h.realized_pnl)}{fmt.currency(h.realized_pnl)}</span></Td>
-                        <Td><span className={pnlColor(pct)}>{pnlSign(pct)}{fmt.percent(pct)}</span></Td>
+                        {visible.has('name') && <Td>{h.stock_name}</Td>}
+                        {visible.has('sector') && <Td><span className="badge-blue">{h.sector || '—'}</span>{h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}</Td>}
+                        {visible.has('shares') && <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>}
+                        {visible.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
+                        {visible.has('amt_invested') && <Td>{fmt.currency(h.total_buy_amount)}</Td>}
+                        {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                        {visible.has('sell_date') && <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                        {visible.has('realized_pnl') && <Td><span className={pnlColor(h.realized_pnl)}>{pnlSign(h.realized_pnl)}{fmt.currency(h.realized_pnl)}</span></Td>}
+                        {visible.has('pnl_pct') && <Td><span className={pnlColor(pct)}>{pnlSign(pct)}{fmt.percent(pct)}</span></Td>}
                       </tr>
                     );
                   })}

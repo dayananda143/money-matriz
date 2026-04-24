@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { ArrowLeft, Plus, Edit2, Trash2, Copy, PieChart as PieIcon, Users, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, EyeOff, Eye } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Copy, PieChart as PieIcon, Users, Search, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, X, EyeOff, Eye, Columns } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -14,6 +14,8 @@ const COLORS = ['#6366f1','#f59e0b','#10b981','#ef4444','#3b82f6','#ec4899','#14
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const EMPTY = { description: '', record_date: today(), notes: '', share_type: '' };
 const EMPTY_CONTRIBUTOR = { user_id: '', amount: '', notes: '' };
+const SHARES_COLS = ['description','type','shareholders','total_amount','notes'];
+const SHARES_COL_LABEL = { description:'Description', type:'Type', shareholders:'Shareholders', total_amount:'Total Amount', notes:'Notes' };
 
 function SortIcon({ col, sort }) {
   if (sort.col !== col) return <ChevronsUpDown size={13} className="text-gray-400 ml-1 inline" />;
@@ -43,6 +45,15 @@ export default function SharesPage() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [userRecords, setUserRecords] = useState([]);
   const [userRecordsLoading, setUserRecordsLoading] = useState(false);
+
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('company_shares_cols') || 'null'); return s ? new Set(s) : new Set(SHARES_COLS); } catch { return new Set(SHARES_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('company_shares_cols', JSON.stringify([...next])); return next;
+  });
 
   // Filter & sort & pagination
   const [search, setSearch] = useState('');
@@ -564,48 +575,47 @@ export default function SharesPage() {
                 </button>
               ))}
             </div>
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {SHARES_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {SHARES_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             {!readOnly && <button onClick={openCreate} className="btn-primary flex items-center gap-2 text-sm py-1.5 px-3"><Plus size={15} /> Add Entry</button>}
           </div>
         </div>
         <Table>
           <thead>
             <tr>
-              <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">
-                Date <SortIcon col="record_date" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">
-                Description <SortIcon col="description" sort={sort} />
-              </Th>
-              <Th>Type</Th>
-              <Th onClick={() => toggleSort('contributor_count')} className="cursor-pointer select-none whitespace-nowrap">
-                Shareholders <SortIcon col="contributor_count" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('total_contributed')} className="cursor-pointer select-none whitespace-nowrap">
-                Total Amount <SortIcon col="total_contributed" sort={sort} />
-              </Th>
-              <Th>Notes</Th>
+              <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">Date <SortIcon col="record_date" sort={sort} /></Th>
+              {visibleCols.has('description') && <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">Description <SortIcon col="description" sort={sort} /></Th>}
+              {visibleCols.has('type') && <Th>Type</Th>}
+              {visibleCols.has('shareholders') && <Th onClick={() => toggleSort('contributor_count')} className="cursor-pointer select-none whitespace-nowrap">Shareholders <SortIcon col="contributor_count" sort={sort} /></Th>}
+              {visibleCols.has('total_amount') && <Th onClick={() => toggleSort('total_contributed')} className="cursor-pointer select-none whitespace-nowrap">Total Amount <SortIcon col="total_contributed" sort={sort} /></Th>}
+              {visibleCols.has('notes') && <Th>Notes</Th>}
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && <EmptyRow cols={7} message={hasFilters ? 'No entries match your filters' : 'No share entries yet'} />}
+            {!filtered.length && <EmptyRow cols={visibleCols.size + 2} message={hasFilters ? 'No entries match your filters' : 'No share entries yet'} />}
             {paginated.map(r => (
               <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
-                <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
-                <Td>
-                  {r.share_type
-                    ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{r.share_type.replace(/_/g, ' ')}</span>
-                    : <span className="text-gray-400 text-xs">—</span>}
-                </Td>
-                <Td>
-                  <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
-                    <Users size={13} className="text-violet-500" />
-                    {r.contributor_count}
-                  </span>
-                </Td>
-                <Td className="font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(r.total_contributed || 0)}</Td>
-                <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>
+                {visibleCols.has('description') && <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>}
+                {visibleCols.has('type') && <Td>{r.share_type ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{r.share_type.replace(/_/g, ' ')}</span> : <span className="text-gray-400 text-xs">—</span>}</Td>}
+                {visibleCols.has('shareholders') && <Td><span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300"><Users size={13} className="text-violet-500" />{r.contributor_count}</span></Td>}
+                {visibleCols.has('total_amount') && <Td className="font-semibold text-violet-600 dark:text-violet-400">{fmt.currency(r.total_contributed || 0)}</Td>}
+                {visibleCols.has('notes') && <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>}
                 <Td>
                   <div className="flex items-center gap-1">
                     <button onClick={() => openContributors(r)} className="p-1 text-gray-400 hover:text-violet-600" title="Shareholders"><Users size={14} /></button>

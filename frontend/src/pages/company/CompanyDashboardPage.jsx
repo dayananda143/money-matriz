@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart as PieIcon, Building2, Wallet } from 'lucide-react';
+import { Landmark, Receipt, TrendingUp, FileText, BarChart2, CreditCard, PieChart as PieIcon, Building2, Wallet, ArrowLeft } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -58,9 +58,14 @@ export default function CompanyDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Company Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-1">Overview of all company finances and investments</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Company Dashboard</h1>
+            <p className="text-gray-500 text-sm mt-1">Overview of all company finances and investments</p>
+          </div>
         </div>
       </div>
 

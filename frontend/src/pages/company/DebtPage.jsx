@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { ArrowLeft, Plus, Edit2, Trash2, Landmark, CreditCard, Search, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit2, Trash2, Landmark, CreditCard, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -11,6 +11,8 @@ import Modal from '../../components/ui/Modal';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const EMPTY = { description: '', amount: '', record_date: today(), notes: '', user_id: '' };
 const EMPTY_PAYMENT = { amount: '', payment_date: today(), notes: '' };
+const DEBT_COLS = ['description','user','amount','paid','remaining','notes'];
+const DEBT_COL_LABEL = { description:'Description', user:'User', amount:'Amount', paid:'Paid', remaining:'Remaining', notes:'Notes' };
 
 function SortIcon({ col, sort }) {
   if (sort.col !== col) return <ChevronsUpDown size={13} className="text-gray-400 ml-1 inline" />;
@@ -31,6 +33,15 @@ export default function DebtPage() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('company_debt_cols') || 'null'); return s ? new Set(s) : new Set(DEBT_COLS); } catch { return new Set(DEBT_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('company_debt_cols', JSON.stringify([...next])); return next;
+  });
 
   // Filter & sort
   const [search, setSearch] = useState('');
@@ -238,54 +249,53 @@ export default function DebtPage() {
       </div>
 
       <div className="card">
+        <div className="flex items-center justify-end px-4 pt-3 pb-1">
+          <div className="relative">
+            <button onClick={() => setColMenuOpen(o => !o)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+            </button>
+            {colMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                {DEBT_COLS.map(col => (
+                  <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                    <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                    {DEBT_COL_LABEL[col]}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
         <Table>
           <thead>
             <tr>
               <Th onClick={() => toggleSort('record_date')} className="cursor-pointer select-none whitespace-nowrap">
                 Date <SortIcon col="record_date" sort={sort} />
               </Th>
-              <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">
-                Description <SortIcon col="description" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('user_name')} className="cursor-pointer select-none whitespace-nowrap">
-                User <SortIcon col="user_name" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('amount')} className="cursor-pointer select-none whitespace-nowrap">
-                Amount <SortIcon col="amount" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('paid')} className="cursor-pointer select-none whitespace-nowrap">
-                Paid <SortIcon col="paid" sort={sort} />
-              </Th>
-              <Th onClick={() => toggleSort('remaining')} className="cursor-pointer select-none whitespace-nowrap">
-                Remaining <SortIcon col="remaining" sort={sort} />
-              </Th>
-              <Th>Notes</Th>
+              {visibleCols.has('description') && <Th onClick={() => toggleSort('description')} className="cursor-pointer select-none whitespace-nowrap">Description <SortIcon col="description" sort={sort} /></Th>}
+              {visibleCols.has('user') && <Th onClick={() => toggleSort('user_name')} className="cursor-pointer select-none whitespace-nowrap">User <SortIcon col="user_name" sort={sort} /></Th>}
+              {visibleCols.has('amount') && <Th onClick={() => toggleSort('amount')} className="cursor-pointer select-none whitespace-nowrap">Amount <SortIcon col="amount" sort={sort} /></Th>}
+              {visibleCols.has('paid') && <Th onClick={() => toggleSort('paid')} className="cursor-pointer select-none whitespace-nowrap">Paid <SortIcon col="paid" sort={sort} /></Th>}
+              {visibleCols.has('remaining') && <Th onClick={() => toggleSort('remaining')} className="cursor-pointer select-none whitespace-nowrap">Remaining <SortIcon col="remaining" sort={sort} /></Th>}
+              {visibleCols.has('notes') && <Th>Notes</Th>}
               <Th></Th>
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && <EmptyRow cols={8} message={hasFilters ? 'No records match your filters' : 'No debt records yet'} />}
+            {!filtered.length && <EmptyRow cols={visibleCols.size + 2} message={hasFilters ? 'No records match your filters' : 'No debt records yet'} />}
             {filtered.map(r => {
               const paid = parseFloat(r.total_paid || 0);
               const remaining = parseFloat(r.amount) - paid;
               return (
                 <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <Td className="text-gray-500 text-sm">{fmt.date(r.record_date)}</Td>
-                  <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>
-                  <Td>
-                    {r.user_name
-                      ? <div><p className="font-medium text-gray-900 dark:text-white text-sm">{r.user_name}</p><p className="text-xs text-gray-400">{r.user_type}</p></div>
-                      : <span className="text-gray-400 text-xs">—</span>
-                    }
-                  </Td>
-                  <Td className="font-semibold">{fmt.currency(r.amount)}</Td>
-                  <Td className="text-green-600 dark:text-green-400 font-medium">{fmt.currency(paid)}</Td>
-                  <Td>
-                    <span className={remaining <= 0 ? 'text-green-600 dark:text-green-400 font-medium' : 'text-red-600 dark:text-red-400 font-medium'}>
-                      {remaining <= 0 ? 'Paid off' : fmt.currency(remaining)}
-                    </span>
-                  </Td>
-                  <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>
+                  {visibleCols.has('description') && <Td className="font-medium text-gray-900 dark:text-white">{r.description}</Td>}
+                  {visibleCols.has('user') && <Td>{r.user_name ? <div><p className="font-medium text-gray-900 dark:text-white text-sm">{r.user_name}</p><p className="text-xs text-gray-400">{r.user_type}</p></div> : <span className="text-gray-400 text-xs">—</span>}</Td>}
+                  {visibleCols.has('amount') && <Td className="font-semibold">{fmt.currency(r.amount)}</Td>}
+                  {visibleCols.has('paid') && <Td className="text-green-600 dark:text-green-400 font-medium">{fmt.currency(paid)}</Td>}
+                  {visibleCols.has('remaining') && <Td><span className={remaining <= 0 ? 'text-green-600 dark:text-green-400 font-medium' : 'text-red-600 dark:text-red-400 font-medium'}>{remaining <= 0 ? 'Paid off' : fmt.currency(remaining)}</span></Td>}
+                  {visibleCols.has('notes') && <Td className="text-gray-500 text-xs">{r.notes || '—'}</Td>}
                   <Td>
                     <div className="flex items-center gap-1">
                       <button onClick={() => openPayments(r)} className="p-1 text-gray-400 hover:text-blue-600" title="Payments"><CreditCard size={14} /></button>

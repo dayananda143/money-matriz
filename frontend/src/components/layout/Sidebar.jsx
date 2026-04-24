@@ -11,7 +11,6 @@ const navConfig = {
   client: [
     { to: '/dashboard', icon: PieChart, label: 'Client Dashboard' },
     { to: '/portfolio', icon: TrendingUp, label: 'Portfolio' },
-    { to: '/demat', icon: Landmark, label: 'Demat Account' },
     { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
     { to: '/funds', icon: Wallet, label: 'Fund Movements' },
     { to: '/movers', icon: Activity, label: 'Movers' },
@@ -20,10 +19,7 @@ const navConfig = {
   shareholder: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/portfolio', icon: TrendingUp, label: 'My Portfolio' },
-    { to: '/demat', icon: Landmark, label: 'Demat Account' },
     { to: '/transactions', icon: ArrowLeftRight, label: 'My Transactions' },
-    { to: '/clients/dashboard', icon: PieChart, label: 'Client Dashboard' },
-    { to: '/company/dashboard', icon: PieChart, label: 'Company Dashboard' },
     { to: '/movers', icon: Activity, label: 'Movers' },
     { to: '/todays-data', icon: Newspaper, label: "Today's Data" },
     { to: '/ideas', icon: Lightbulb, label: 'Ideas' },
@@ -98,9 +94,8 @@ export default function Sidebar({ open, onClose }) {
     .filter(i => (i.to !== '/company' && i.to !== '/admin/overview') || isSuperAdmin);
   const superItems = user.role === 'super_admin' ? navConfig.super_admin_extra : [];
   const ideasItem = (isAdmin || isShareholder) ? [{ to: '/ideas', icon: Lightbulb, label: 'Ideas' }] : [];
-  const dematItem = hasHoldings === true && isAdmin ? [{ to: '/demat', icon: Landmark, label: 'Demat Account' }] : [];
   const seen = new Set();
-  const allItems = [...base, ...adminItems, ...superItems, ...dematItem].filter(i => {
+  const allItems = [...base, ...adminItems, ...superItems].filter(i => {
     if (seen.has(i.to)) return false;
     seen.add(i.to);
     return true;

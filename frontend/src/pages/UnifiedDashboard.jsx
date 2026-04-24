@@ -67,26 +67,27 @@ function ProfileWidget({ user }) {
 }
 
 // ── Widget: My Portfolio Stats ─────────────────────────────────────────────
-function MyPortfolioWidget() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    api.get('/portfolio/me/summary').then(r => setData(r.data)).catch(console.error).finally(() => setLoading(false));
-  }, []);
-  if (loading) return <SkeletonStatCards count={4} />;
-  const pnl = (data?.portfolio_value || 0) - (data?.invested || 0);
-  const pnlPct = data?.invested > 0 ? pnl / data.invested * 100 : 0;
+function MyPortfolioWidget({ portfolioData }) {
+  if (!portfolioData) return <SkeletonStatCards count={4} />;
+  // Match Portfolio page: use active holdings cost basis, not summary `invested` field
+  const activeHoldings = (portfolioData.holdings || []).filter(h => h.status === 'active');
+  const exitedHoldings = (portfolioData.holdings || []).filter(h => h.status === 'exited');
+  const activeInvested = activeHoldings.reduce((s, h) => s + parseFloat(h.quantity) * parseFloat(h.avg_buy_price), 0);
+  const realizedPnl = exitedHoldings.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
+  const pnl = (portfolioData.portfolio_value || 0) - activeInvested;
+  const pnlPct = activeInvested > 0 ? pnl / activeInvested * 100 : 0;
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">My Portfolio</p>
         <Link to="/portfolio" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Portfolio →</Link>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard title="Portfolio Value" value={fmt.currency(data?.portfolio_value)} icon={TrendingUp} color="brand" />
-        <StatCard title="Cash Balance" value={fmt.currency(data?.cash_balance)} icon={Wallet} color="blue" />
-        <StatCard title="Total Invested" value={fmt.currency(data?.invested)} icon={BarChart2} color="purple" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <StatCard title="Portfolio Value" value={fmt.currency(portfolioData.portfolio_value)} icon={TrendingUp} color="brand" />
+        <StatCard title="Cash Balance" value={fmt.currency(portfolioData.cash_balance)} icon={Wallet} color="blue" />
+        <StatCard title="Amount Invested" value={fmt.currency(activeInvested)} icon={BarChart2} color="purple" />
         <StatCard title="Unrealized P&L" value={`${pnlSign(pnl)}${fmt.currency(pnl)}`} trend={pnlPct} icon={ArrowUpDown} color="orange" />
+        <StatCard title="Realized P&L" value={`${pnlSign(realizedPnl)}${fmt.currency(realizedPnl)}`} icon={ArrowUpDown} color={realizedPnl >= 0 ? 'brand' : 'orange'} />
       </div>
     </div>
   );
@@ -227,7 +228,7 @@ function ClientsSummaryWidget() {
         <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           Clients Summary <span className="normal-case font-normal text-gray-400">({active.length} active)</span>
         </p>
-        <Link to="/clients" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Clients →</Link>
+        <Link to="/clients/dashboard" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Clients →</Link>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-4">
@@ -314,9 +315,9 @@ const WIDGETS = [
     render: ({ portfolioData }) => <MyPortfolioWidget portfolioData={portfolioData} />,
   },
   {
-    id: 'demat',
+    id: 'company',
     roles: ['shareholder', 'admin'],
-    render: () => <DematWidget />,
+    render: () => <CompanySnapshotWidget />,
   },
   {
     id: 'clients',
@@ -324,9 +325,9 @@ const WIDGETS = [
     render: () => <ClientsSummaryWidget />,
   },
   {
-    id: 'company',
+    id: 'demat',
     roles: ['shareholder', 'admin'],
-    render: () => <CompanySnapshotWidget />,
+    render: () => <DematWidget />,
   },
   {
     id: 'sector',
