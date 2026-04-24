@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Search, ArrowLeft, Columns } from 'lucide-react';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmt } from '../../utils/format';
@@ -110,10 +110,21 @@ function SchemeCards({ clients, schemeFilter, onSchemeFilter }) {
   );
 }
 
+const CD_COLS = ['manager', 'scheme', 'portfolio', 'cash', 'total_aum'];
+const CD_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', portfolio: 'Portfolio', cash: 'Cash', total_aum: 'Total AUM' };
+
 function ClientsTable({ clients }) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('client_dashboard_cols') || 'null'); return s ? new Set(s) : new Set(CD_COLS); } catch { return new Set(CD_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('client_dashboard_cols', JSON.stringify([...next])); return next;
+  });
 
   const sorted = useMemo(() =>
     [...clients]
@@ -151,6 +162,22 @@ function ClientsTable({ clients }) {
               className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
             />
           </div>
+          <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-40">
+                  {CD_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {CD_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
           <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
             {[5, 10, 15, 20, 25].map(n => (
@@ -166,33 +193,33 @@ function ClientsTable({ clients }) {
         <thead>
           <tr>
             <Th>Client</Th>
-            <Th>Manager</Th>
-            <Th>Scheme</Th>
-            <Th>Portfolio</Th>
-            <Th>Cash</Th>
-            <Th>Total AUM</Th>
+            {visibleCols.has('manager') && <Th>Manager</Th>}
+            {visibleCols.has('scheme') && <Th>Scheme</Th>}
+            {visibleCols.has('portfolio') && <Th>Portfolio</Th>}
+            {visibleCols.has('cash') && <Th>Cash</Th>}
+            {visibleCols.has('total_aum') && <Th>Total AUM</Th>}
           </tr>
         </thead>
         <tbody>
-          {!paged.length && <EmptyRow cols={6} message="No clients" />}
+          {!paged.length && <EmptyRow cols={visibleCols.size + 1} message="No clients" />}
           {paged.map(c => (
             <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
               <Td>
                 <Link to={`/clients/${c.id}`} className="font-medium text-brand-600 hover:text-brand-700 text-sm">{c.name}</Link>
                 <p className="text-xs text-gray-400">{c.email}</p>
               </Td>
-              <Td className="text-xs text-gray-500">{c.shareholder_name || '—'}</Td>
-              <Td>
+              {visibleCols.has('manager') && <Td className="text-xs text-gray-500">{c.shareholder_name || '—'}</Td>}
+              {visibleCols.has('scheme') && <Td>
                 {(() => {
                   const sc = c.scheme ? c.scheme.split(',').map(s => s.trim()).filter(Boolean) : [];
                   return sc.length
                     ? <span className="px-1.5 py-0.5 text-xs rounded bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300">{sc.map(s => s.replace(/_/g, ' ')).join(', ')}</span>
                     : <span className="text-gray-400">—</span>;
                 })()}
-              </Td>
-              <Td className="font-medium text-sm">{fmt.currency(c.portfolio_value)}</Td>
-              <Td className="text-sm">{fmt.currency(c.cash_balance)}</Td>
-              <Td className="font-semibold text-sm">{fmt.currency(parseFloat(c.portfolio_value) + parseFloat(c.cash_balance))}</Td>
+              </Td>}
+              {visibleCols.has('portfolio') && <Td className="font-medium text-sm">{fmt.currency(c.portfolio_value)}</Td>}
+              {visibleCols.has('cash') && <Td className="text-sm">{fmt.currency(c.cash_balance)}</Td>}
+              {visibleCols.has('total_aum') && <Td className="font-semibold text-sm">{fmt.currency(parseFloat(c.portfolio_value) + parseFloat(c.cash_balance))}</Td>}
             </tr>
           ))}
         </tbody>
@@ -229,6 +256,7 @@ function ClientsTable({ clients }) {
 }
 
 export default function ClientDashboardPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get('tab') || 'my';
@@ -270,9 +298,14 @@ export default function ClientDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Client Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-1">Overview of all clients on the platform</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Client Dashboard</h1>
+            <p className="text-gray-500 text-sm mt-1">Overview of all clients on the platform</p>
+          </div>
         </div>
         {myClients.length > 0 && (
           <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden text-sm font-medium">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Key, UserCheck, UserX, Eye, EyeOff, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, Layers, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -146,6 +146,22 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
   const [limit, setLimit] = useState(10);
 
   const isClient = tab === 'client';
+  const isEmployee = tab === 'employee';
+  const isShareholder = tab === 'shareholder';
+
+  const allToggleCols = isClient
+    ? ['email', 'scheme', 'manager', 'status', 'joined']
+    : ['email', 'role', 'status', 'joined'];
+  const colLabels = { email: 'Email', scheme: 'Scheme', manager: 'Manager', role: 'Role', status: 'Status', joined: 'Joined' };
+
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem(`users_${tab}_cols`) || 'null'); return s ? new Set(s) : new Set(allToggleCols); } catch { return new Set(allToggleCols); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem(`users_${tab}_cols`, JSON.stringify([...next])); return next;
+  });
 
   // Derive unique schemes from users in this tab
   const allSchemes = isClient
@@ -181,9 +197,7 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
   );
 
   // columns differ per tab
-  const isEmployee = tab === 'employee';
-  const isShareholder = tab === 'shareholder';
-  const colCount = isClient ? 7 : isEmployee ? 6 : isShareholder ? 7 : 6;
+  const colCount = visibleCols.size + 1 + (isSuperAdmin ? 1 : 0);
 
   return (
     <div className="card">
@@ -203,6 +217,22 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
           ))}
         </div>
         <div className="flex items-center gap-3 mb-1">
+          <div className="relative">
+            <button onClick={() => setColMenuOpen(o => !o)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+            </button>
+            {colMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-40">
+                {allToggleCols.map(col => (
+                  <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                    <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                    {colLabels[col]}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
           <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
             {[5, 10, 15, 20, 25].map(n => (
@@ -237,12 +267,12 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
         <thead>
           <tr>
             <SortTh col="name">Name</SortTh>
-            <SortTh col="email">Email</SortTh>
-            {isClient && <SortTh col="scheme">Scheme</SortTh>}
-            {isClient && <SortTh col="shareholder_name">Manager</SortTh>}
-            {(isEmployee || isShareholder) && <SortTh col="role">Role</SortTh>}
-            <SortTh col="is_active">Status</SortTh>
-            <SortTh col="created_at">Joined</SortTh>
+            {visibleCols.has('email') && <SortTh col="email">Email</SortTh>}
+            {isClient && visibleCols.has('scheme') && <SortTh col="scheme">Scheme</SortTh>}
+            {isClient && visibleCols.has('manager') && <SortTh col="shareholder_name">Manager</SortTh>}
+            {(isEmployee || isShareholder) && visibleCols.has('role') && <SortTh col="role">Role</SortTh>}
+            {visibleCols.has('status') && <SortTh col="is_active">Status</SortTh>}
+            {visibleCols.has('joined') && <SortTh col="created_at">Joined</SortTh>}
             {isSuperAdmin && <Th>Actions</Th>}
           </tr>
         </thead>
@@ -251,20 +281,20 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
           {paged.map(u => (
             <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
               <Td className="font-medium text-gray-900 dark:text-white">{u.name}</Td>
-              <Td className="text-gray-500">{u.email}</Td>
-              {isClient && (
+              {visibleCols.has('email') && <Td className="text-gray-500">{u.email}</Td>}
+              {isClient && visibleCols.has('scheme') && (
                 <Td>
                   {u.scheme
                     ? <div className="flex flex-wrap gap-1">{u.scheme.split(',').map(s => s.trim()).filter(Boolean).map(s => <span key={s} className="px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{s.replace(/_/g, ' ')}</span>)}</div>
                     : <span className="text-gray-400 text-xs">—</span>}
                 </Td>
               )}
-              {isClient && <Td className="text-gray-500 text-xs">{u.shareholder_name || '—'}</Td>}
-              {(isEmployee || isShareholder) && (
+              {isClient && visibleCols.has('manager') && <Td className="text-gray-500 text-xs">{u.shareholder_name || '—'}</Td>}
+              {(isEmployee || isShareholder) && visibleCols.has('role') && (
                 <Td><span className={u.role === 'super_admin' ? 'badge-red' : u.role === 'admin' ? 'badge-blue' : 'badge-gray'}>{u.role.replace('_', ' ')}</span></Td>
               )}
-              <Td><span className={u.is_active ? 'badge-green' : 'badge-red'}>{u.is_active ? 'Active' : 'Inactive'}</span></Td>
-              <Td className="text-gray-500 text-xs">{fmt.date(u.created_at)}</Td>
+              {visibleCols.has('status') && <Td><span className={u.is_active ? 'badge-green' : 'badge-red'}>{u.is_active ? 'Active' : 'Inactive'}</span></Td>}
+              {visibleCols.has('joined') && <Td className="text-gray-500 text-xs">{fmt.date(u.created_at)}</Td>}
               {isSuperAdmin && (
                 <Td>
                   <div className="flex items-center gap-1">

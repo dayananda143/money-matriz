@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, Users, Wallet, TrendingUp, LayoutGrid, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, Wallet, TrendingUp, LayoutGrid, ChevronUp, ChevronDown, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -15,6 +15,9 @@ const SCHEME_COLORS = [
   { bg: 'bg-violet-50 dark:bg-violet-900/20', border: 'border-violet-200 dark:border-violet-800', active: 'bg-violet-600 border-violet-600', text: 'text-violet-700 dark:text-violet-400', num: 'text-violet-600 dark:text-violet-400' },
 ];
 
+const AC_COLS = ['manager', 'scheme', 'cash', 'portfolio', 'aum', 'status', 'joined'];
+const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', cash: 'Cash Balance', portfolio: 'Portfolio Value', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
+
 export default function AllClientsPage() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +29,14 @@ export default function AllClientsPage() {
   const [managerFilter, setManagerFilter] = useState('All');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('all_clients_cols') || 'null'); return s ? new Set(s) : new Set(AC_COLS); } catch { return new Set(AC_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('all_clients_cols', JSON.stringify([...next])); return next;
+  });
 
   function handleSort(key) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -243,6 +254,22 @@ export default function AllClientsPage() {
             >
               {managers.map(m => <option key={m} value={m}>{m === 'All' ? 'All Managers' : m}</option>)}
             </select>
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {AC_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {AC_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
             <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
               {[5, 10, 15, 20, 25].map(n => (
@@ -268,17 +295,17 @@ export default function AllClientsPage() {
           <thead>
             <tr>
               <SortTh col="name">Client</SortTh>
-              <SortTh col="manager">Manager</SortTh>
-              <Th>Scheme</Th>
-              <SortTh col="cash">Cash Balance</SortTh>
-              <SortTh col="portfolio">Portfolio Value</SortTh>
-              <SortTh col="aum">Total AUM</SortTh>
-              <Th>Status</Th>
-              <SortTh col="joined">Joined</SortTh>
+              {visibleCols.has('manager') && <SortTh col="manager">Manager</SortTh>}
+              {visibleCols.has('scheme') && <Th>Scheme</Th>}
+              {visibleCols.has('cash') && <SortTh col="cash">Cash Balance</SortTh>}
+              {visibleCols.has('portfolio') && <SortTh col="portfolio">Portfolio Value</SortTh>}
+              {visibleCols.has('aum') && <SortTh col="aum">Total AUM</SortTh>}
+              {visibleCols.has('status') && <Th>Status</Th>}
+              {visibleCols.has('joined') && <SortTh col="joined">Joined</SortTh>}
             </tr>
           </thead>
           <tbody>
-            {!paged.length && <EmptyRow cols={8} message="No clients found" />}
+            {!paged.length && <EmptyRow cols={visibleCols.size + 1} message="No clients found" />}
             {paged.map(c => (
               <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td>
@@ -288,25 +315,27 @@ export default function AllClientsPage() {
                   <p className="text-xs text-gray-400">{c.email}</p>
                   {c.phone && <p className="text-xs text-gray-400">{c.phone}</p>}
                 </Td>
-                <Td className="text-sm text-gray-600 dark:text-gray-300">{c.shareholder_name || <span className="text-gray-400">Unassigned</span>}</Td>
-                <Td>
+                {visibleCols.has('manager') && <Td className="text-sm text-gray-600 dark:text-gray-300">{c.shareholder_name || <span className="text-gray-400">Unassigned</span>}</Td>}
+                {visibleCols.has('scheme') && <Td>
                   {(() => { const sc = c.scheme ? c.scheme.split(',').map(s => s.trim()).filter(Boolean) : []; return sc.length ? <span className="px-1.5 py-0.5 text-xs rounded bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300">{sc.map(s => s.replace(/_/g, ' ')).join(', ')}</span> : <span className="text-gray-400">—</span>; })()}
-                </Td>
-                <Td>{fmt.currency(c.cash_balance)}</Td>
-                <Td>{fmt.currency(c.portfolio_value)}</Td>
-                <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>
-                <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>
-                <Td className="text-gray-500 text-xs">{fmt.date(c.created_at)}</Td>
+                </Td>}
+                {visibleCols.has('cash') && <Td>{fmt.currency(c.cash_balance)}</Td>}
+                {visibleCols.has('portfolio') && <Td>{fmt.currency(c.portfolio_value)}</Td>}
+                {visibleCols.has('aum') && <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>}
+                {visibleCols.has('status') && <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>}
+                {visibleCols.has('joined') && <Td className="text-gray-500 text-xs">{fmt.date(c.created_at)}</Td>}
               </tr>
             ))}
             {paged.length > 0 && (
               <tr className="bg-gray-50 dark:bg-gray-800/60 font-semibold text-xs border-t-2 border-gray-200 dark:border-gray-600">
                 <Td className="text-gray-500">Showing {paged.length} of {sorted.length}</Td>
-                <Td /><Td />
-                <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash)}</Td>
-                <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalPortfolio)}</Td>
-                <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash + totalPortfolio)}</Td>
-                <Td /><Td />
+                {visibleCols.has('manager') && <Td />}
+                {visibleCols.has('scheme') && <Td />}
+                {visibleCols.has('cash') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash)}</Td>}
+                {visibleCols.has('portfolio') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalPortfolio)}</Td>}
+                {visibleCols.has('aum') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash + totalPortfolio)}</Td>}
+                {visibleCols.has('status') && <Td />}
+                {visibleCols.has('joined') && <Td />}
               </tr>
             )}
           </tbody>

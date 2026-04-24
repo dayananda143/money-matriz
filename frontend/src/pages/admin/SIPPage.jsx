@@ -2,13 +2,127 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   RefreshCw, Plus, Trash2, CalendarClock, Pencil,
-  ArrowLeft, ChevronLeft, ChevronRight, Users, UserPlus, X, ChevronUp, ChevronDown, Copy, Check,
+  ArrowLeft, ChevronLeft, ChevronRight, Users, UserPlus, X, ChevronUp, ChevronDown, Copy, Check, Columns, Download,
 } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import Modal from '../../components/ui/Modal';
 import { useAuth } from '../../contexts/AuthContext';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
+async function exportSIPToPDF({ entries, shareholderInfo, summary, visibleCols }) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+
+  const GREEN_DARK = [22, 78, 45];
+  const GREEN_PALE = [240, 250, 244];
+  const GOLD = [192, 155, 60];
+  const WHITE = [255, 255, 255];
+
+  doc.setFillColor(...WHITE);
+  doc.rect(0, 0, W, H, 'F');
+
+  const BANNER_H = 28;
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, 0, W, BANNER_H, 'F');
+  doc.setFillColor(...GOLD);
+  doc.rect(0, BANNER_H, W, 1, 'F');
+
+  try {
+    const logoDataUrl = await new Promise((resolve, reject) => {
+      const img = new Image(); img.crossOrigin = 'anonymous';
+      img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); resolve(c.toDataURL('image/png')); };
+      img.onerror = reject; img.src = '/logo.png';
+    });
+    doc.addImage(logoDataUrl, 'PNG', 4, 3, 22, 22);
+  } catch {}
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(...WHITE);
+  doc.text('MONEY MATRIZ — SIP LEDGER', 32, 12);
+  doc.setFontSize(11);
+  doc.setTextColor(...GOLD);
+  doc.text(shareholderInfo?.name?.toUpperCase() || 'SHAREHOLDER', 32, 22);
+
+  doc.setFillColor(...GREEN_PALE);
+  doc.rect(0, BANNER_H + 1, W, 7, 'F');
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(110, 110, 110);
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, W - 10, BANNER_H + 6, { align: 'right' });
+
+  // Summary strip
+  const sumY = BANNER_H + 10;
+  const cols4 = [
+    { label: 'Total SIP', value: fmt.currency(summary.total) },
+    { label: 'SIP', value: fmt.currency(summary.sipTotal) },
+    { label: 'Additional', value: fmt.currency(summary.additionalTotal) },
+    { label: 'Withdrawals', value: fmt.currency(summary.withdrawTotal) },
+  ];
+  const boxW = (W - 20) / cols4.length;
+  cols4.forEach((col, i) => {
+    const x = 10 + i * boxW;
+    doc.setFillColor(...GREEN_PALE);
+    doc.roundedRect(x, sumY, boxW - 2, 12, 1, 1, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...GREEN_DARK);
+    doc.text(col.value, x + (boxW - 2) / 2, sumY + 5.5, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(110, 110, 110);
+    doc.text(col.label, x + (boxW - 2) / 2, sumY + 9.5, { align: 'center' });
+  });
+
+  const head = ['Date'];
+  if (visibleCols.has('type')) head.push('Type');
+  if (visibleCols.has('stock')) head.push('Symbol', 'Stock Name');
+  if (visibleCols.has('amount')) head.push('Amount');
+  if (visibleCols.has('notes')) head.push('Notes');
+
+  const body = entries.map(e => {
+    const row = [fmt.date(e.start_date) || '—'];
+    if (visibleCols.has('type')) row.push(e.sip_type || '—');
+    if (visibleCols.has('stock')) { row.push(e.stock_symbol || '—'); row.push(e.stock_name || '—'); }
+    if (visibleCols.has('amount')) row.push((e.sip_type === 'withdraw' ? '−' : '') + fmt.currency(e.amount));
+    if (visibleCols.has('notes')) row.push(e.notes || '—');
+    return row;
+  });
+
+  autoTable(doc, {
+    startY: sumY + 15,
+    head: [head],
+    body,
+    theme: 'grid',
+    headStyles: { fillColor: GREEN_DARK, textColor: WHITE, fontSize: 6.5, fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 1.5, right: 1.5 }, lineColor: [34, 120, 70], lineWidth: 0.3 },
+    bodyStyles: { fontSize: 6.8, cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 }, lineColor: [210, 230, 215], lineWidth: 0.2 },
+    alternateRowStyles: { fillColor: GREEN_PALE },
+    didParseCell: (data) => {
+      if (data.section === 'body' && head[data.column.index] === 'Type' && data.cell.raw === 'withdraw') {
+        data.cell.styles.textColor = [200, 30, 30];
+        data.cell.styles.fontStyle = 'bold';
+      }
+      if (data.section === 'body' && head[data.column.index] === 'Amount' && String(data.cell.raw).startsWith('−')) {
+        data.cell.styles.textColor = [200, 30, 30];
+      }
+    },
+  });
+
+  doc.setFillColor(...GREEN_DARK);
+  doc.rect(0, H - 8, W, 8, 'F');
+  doc.setFillColor(...GOLD);
+  doc.rect(0, H - 8, W, 0.8, 'F');
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(7);
+  doc.setTextColor(...WHITE);
+  doc.text('MONEY MATRIZ IS NOT REGISTERED BY SEBI', W / 2, H - 3, { align: 'center' });
+  doc.setDrawColor(...GREEN_DARK);
+  doc.setLineWidth(0.5);
+  doc.rect(0.5, 0.5, W - 1, H - 1, 'S');
+
+  const name = (shareholderInfo?.name || 'sip').replace(/\s+/g, '_').toLowerCase();
+  doc.save(`sip_${name}_${new Date().getFullYear()}.pdf`);
+}
 
 
 // ── Tiles page (admin only) ───────────────────────────────────────────────────
@@ -422,6 +536,16 @@ export default function SIPPage() {
   const [page, setPage] = useState(1);
   const [inlineRow, setInlineRow] = useState(null); // { stock_id, amount, date, sip_type, notes, _stocks }
   const [inlineSaving, setInlineSaving] = useState(false);
+  const SIP_COLS = ['type', 'stock', 'amount', 'notes'];
+  const SIP_COL_LABEL = { type: 'Type', stock: 'Stock', amount: 'Amount', notes: 'Notes' };
+  const [sipVisibleCols, setSipVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('sip_visible_cols') || 'null'); return s ? new Set(s) : new Set(SIP_COLS); } catch { return new Set(SIP_COLS); }
+  });
+  const [sipColMenuOpen, setSipColMenuOpen] = useState(false);
+  const toggleSipCol = col => setSipVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('sip_visible_cols', JSON.stringify([...next])); return next;
+  });
 
   const toggleSort = (col) => { setSort(s => ({ col, dir: s.col === col && s.dir === 'asc' ? 'desc' : 'asc' })); setPage(1); };
 
@@ -595,6 +719,12 @@ export default function SIPPage() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} className="btn-secondary p-2"><RefreshCw size={15} /></button>
+          {entries.length > 0 && (
+            <button onClick={() => exportSIPToPDF({ entries: sortedEntries, shareholderInfo, summary: { total, sipTotal, additionalTotal, withdrawTotal }, visibleCols: sipVisibleCols }).catch(console.error)}
+              className="btn-secondary flex items-center gap-1.5 text-sm">
+              <Download size={14} /> Export PDF
+            </button>
+          )}
           {isAdmin && (
             <button onClick={() => setCreateOpen(true)} className="btn-primary flex items-center gap-1.5 text-sm">
               <Plus size={15} /> Add Entry
@@ -644,6 +774,22 @@ export default function SIPPage() {
           <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-700">
             <h2 className="font-semibold text-gray-900 dark:text-white text-sm">Entries</h2>
             <div className="flex items-center gap-2">
+              <div className="relative">
+                <button onClick={() => setSipColMenuOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                  <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{sipVisibleCols.size}</span>
+                </button>
+                {sipColMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-36">
+                    {SIP_COLS.map(col => (
+                      <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={sipVisibleCols.has(col)} onChange={() => toggleSipCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                        {SIP_COL_LABEL[col]}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
               <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
                 {[5, 10, 15].map(n => (
@@ -658,18 +804,19 @@ export default function SIPPage() {
           <Table>
             <thead>
               <tr>
-                {[['date','Date'],['type','Type'],['stock','Stock'],['amount','Amount']].map(([col, label]) => (
-                  <Th key={col}>
-                    <button onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">
-                      {label}
-                      <span className="flex flex-col leading-none">
-                        <ChevronUp size={10} className={sort.col === col && sort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
-                        <ChevronDown size={10} className={sort.col === col && sort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
-                      </span>
-                    </button>
-                  </Th>
-                ))}
-                <Th>Notes</Th>
+                <Th>
+                  <button onClick={() => toggleSort('date')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">
+                    Date
+                    <span className="flex flex-col leading-none">
+                      <ChevronUp size={10} className={sort.col === 'date' && sort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                      <ChevronDown size={10} className={sort.col === 'date' && sort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                    </span>
+                  </button>
+                </Th>
+                {sipVisibleCols.has('type') && <Th><button onClick={() => toggleSort('type')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">Type<span className="flex flex-col leading-none"><ChevronUp size={10} className={sort.col === 'type' && sort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /><ChevronDown size={10} className={sort.col === 'type' && sort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /></span></button></Th>}
+                {sipVisibleCols.has('stock') && <Th><button onClick={() => toggleSort('stock')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">Stock<span className="flex flex-col leading-none"><ChevronUp size={10} className={sort.col === 'stock' && sort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /><ChevronDown size={10} className={sort.col === 'stock' && sort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /></span></button></Th>}
+                {sipVisibleCols.has('amount') && <Th><button onClick={() => toggleSort('amount')} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">Amount<span className="flex flex-col leading-none"><ChevronUp size={10} className={sort.col === 'amount' && sort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /><ChevronDown size={10} className={sort.col === 'amount' && sort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} /></span></button></Th>}
+                {sipVisibleCols.has('notes') && <Th>Notes</Th>}
                 {isAdmin && <Th>Actions</Th>}
               </tr>
             </thead>
@@ -681,31 +828,31 @@ export default function SIPPage() {
                       onChange={e => setInlineRow(r => ({ ...r, date: e.target.value }))}
                       className="input w-full text-sm py-1 px-2" />
                   </Td>
-                  <Td>
+                  {sipVisibleCols.has('type') && <Td>
                     <select value={inlineRow.sip_type}
                       onChange={e => setInlineRow(r => ({ ...r, sip_type: e.target.value }))}
                       className="input w-full text-sm py-1 px-2">
                       {sipTypes.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                     </select>
-                  </Td>
-                  <Td>
+                  </Td>}
+                  {sipVisibleCols.has('stock') && <Td>
                     <select value={inlineRow.stock_id}
                       onChange={e => setInlineRow(r => ({ ...r, stock_id: e.target.value }))}
                       className="input w-full text-sm py-1 px-2">
                       <option value="">— None —</option>
                       {inlineRow._stocks.map(s => <option key={s.id} value={s.id}>{s.symbol}</option>)}
                     </select>
-                  </Td>
-                  <Td>
+                  </Td>}
+                  {sipVisibleCols.has('amount') && <Td>
                     <input type="number" min="1" step="0.01" value={inlineRow.amount}
                       onChange={e => setInlineRow(r => ({ ...r, amount: e.target.value }))}
                       className="input w-full text-sm py-1 px-2" />
-                  </Td>
-                  <Td>
+                  </Td>}
+                  {sipVisibleCols.has('notes') && <Td>
                     <input type="text" value={inlineRow.notes}
                       onChange={e => setInlineRow(r => ({ ...r, notes: e.target.value }))}
                       placeholder="Notes" className="input w-full text-sm py-1 px-2" />
-                  </Td>
+                  </Td>}
                   <Td>
                     <div className="flex items-center gap-1">
                       <button onClick={saveInline} disabled={inlineSaving} title="Save"
@@ -721,26 +868,26 @@ export default function SIPPage() {
                 </tr>
               )}
               {sortedEntries.length === 0 && !inlineRow
-                ? <EmptyRow cols={6} message="No SIP entries yet." />
+                ? <EmptyRow cols={sipVisibleCols.size + 1 + (isAdmin ? 1 : 0)} message="No SIP entries yet." />
                 : pagedEntries.map(entry => (
                   <tr key={entry.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${entry.sip_type === 'withdraw' ? 'bg-red-50/40 dark:bg-red-900/10' : ''}`}>
                     <Td className="text-sm text-gray-600 dark:text-gray-300">{fmt.date(entry.start_date) || '—'}</Td>
-                    <Td className="text-sm">
+                    {sipVisibleCols.has('type') && <Td className="text-sm">
                       <span className={entry.sip_type === 'withdraw' ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'}>
                         {entry.sip_type || '—'}
                       </span>
-                    </Td>
-                    <Td>
+                    </Td>}
+                    {sipVisibleCols.has('stock') && <Td>
                       {entry.stock_symbol
                         ? <><p className="font-semibold text-brand-600 dark:text-brand-400">{entry.stock_symbol}</p>
                             <p className="text-xs text-gray-400">{entry.stock_name}</p></>
                         : <span className="text-gray-400 text-sm">—</span>
                       }
-                    </Td>
-                    <Td className={`font-semibold ${entry.sip_type === 'withdraw' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
+                    </Td>}
+                    {sipVisibleCols.has('amount') && <Td className={`font-semibold ${entry.sip_type === 'withdraw' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
                       {entry.sip_type === 'withdraw' ? '−' : ''}{fmt.currency(entry.amount)}
-                    </Td>
-                    <Td className="text-sm text-gray-500 dark:text-gray-400">{entry.notes || '—'}</Td>
+                    </Td>}
+                    {sipVisibleCols.has('notes') && <Td className="text-sm text-gray-500 dark:text-gray-400">{entry.notes || '—'}</Td>}
                     <Td>
                       {isAdmin && (
                         <div className="flex items-center gap-1">

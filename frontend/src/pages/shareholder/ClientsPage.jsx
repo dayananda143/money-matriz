@@ -1,10 +1,13 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonSearchBar, SkeletonTable } from '../../components/ui/Skeleton';
+
+const CL_COLS = ['email', 'scheme', 'cash_balance', 'portfolio_value', 'total', 'status'];
+const CL_COL_LABEL = { email: 'Email', scheme: 'Scheme', cash_balance: 'Cash Balance', portfolio_value: 'Portfolio Value', total: 'Total', status: 'Status' };
 
 export default function ClientsPage() {
   const [clients, setClients] = useState([]);
@@ -14,6 +17,14 @@ export default function ClientsPage() {
   const [limit, setLimit] = useState(10);
   const [schemeTab, setSchemeTab] = useState('All');
   const [statusTab, setStatusTab] = useState('active');
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('clients_visible_cols') || 'null'); return s ? new Set(s) : new Set(CL_COLS); } catch { return new Set(CL_COLS); }
+  });
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const toggleCol = col => setVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('clients_visible_cols', JSON.stringify([...next])); return next;
+  });
 
   useEffect(() => {
     api.get('/relationships/shareholder/me')
@@ -89,6 +100,22 @@ export default function ClientsPage() {
             })}
           </div>
           <div className="flex items-center gap-3 mb-1">
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visibleCols.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {CL_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visibleCols.has(col)} onChange={() => toggleCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {CL_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
             <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
               {[5, 10, 15, 20, 25].map(n => (
@@ -113,16 +140,16 @@ export default function ClientsPage() {
           <thead>
             <tr>
               <Th>Name</Th>
-              <Th>Email</Th>
-              <Th>Scheme</Th>
-              <Th>Cash Balance</Th>
-              <Th>Portfolio Value</Th>
-              <Th>Total</Th>
-              <Th>Status</Th>
+              {visibleCols.has('email') && <Th>Email</Th>}
+              {visibleCols.has('scheme') && <Th>Scheme</Th>}
+              {visibleCols.has('cash_balance') && <Th>Cash Balance</Th>}
+              {visibleCols.has('portfolio_value') && <Th>Portfolio Value</Th>}
+              {visibleCols.has('total') && <Th>Total</Th>}
+              {visibleCols.has('status') && <Th>Status</Th>}
             </tr>
           </thead>
           <tbody>
-            {!paged.length && <EmptyRow cols={7} message="No clients found" />}
+            {!paged.length && <EmptyRow cols={visibleCols.size + 1} message="No clients found" />}
             {paged.map(c => (
               <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                 <Td>
@@ -131,16 +158,16 @@ export default function ClientsPage() {
                   </Link>
                   <p className="text-xs text-gray-400">{c.phone || ''}</p>
                 </Td>
-                <Td className="text-gray-500 text-sm">{c.email}</Td>
-                <Td>
+                {visibleCols.has('email') && <Td className="text-gray-500 text-sm">{c.email}</Td>}
+                {visibleCols.has('scheme') && <Td>
                   {c.scheme ? c.scheme.split(',').map(s => s.trim()).filter(Boolean).map(s => (
                     <span key={s} className="inline-block mr-1 mb-0.5 px-1.5 py-0.5 text-xs rounded bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300">{s}</span>
                   )) : <span className="text-gray-400">—</span>}
-                </Td>
-                <Td>{fmt.currency(c.cash_balance)}</Td>
-                <Td>{fmt.currency(c.portfolio_value)}</Td>
-                <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>
-                <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>
+                </Td>}
+                {visibleCols.has('cash_balance') && <Td>{fmt.currency(c.cash_balance)}</Td>}
+                {visibleCols.has('portfolio_value') && <Td>{fmt.currency(c.portfolio_value)}</Td>}
+                {visibleCols.has('total') && <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>}
+                {visibleCols.has('status') && <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>}
               </tr>
             ))}
           </tbody>

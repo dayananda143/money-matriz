@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft } from 'lucide-react';
+import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -1776,6 +1776,16 @@ export default function StocksPage() {
   const [stockPage, setStockPage] = useState(1);
   const [stockSearch, setStockSearch] = useState('');
   const [stockLimit, setStockLimit] = useState(10);
+  const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'period', 'status', 'updated'];
+  const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', period: 'Period', status: 'Status', updated: 'Updated' };
+  const [stockVisibleCols, setStockVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('stocks_visible_cols') || 'null'); return s ? new Set(s) : new Set(ST_COLS); } catch { return new Set(ST_COLS); }
+  });
+  const [stockColMenuOpen, setStockColMenuOpen] = useState(false);
+  const toggleStockCol = col => setStockVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('stocks_visible_cols', JSON.stringify([...next])); return next;
+  });
   const navigate = useNavigate();
 
   const showToast = (msg) => {
@@ -1928,6 +1938,22 @@ export default function StocksPage() {
             ))}
           </div>
           <div className="flex items-center gap-3 mb-1">
+            <div className="relative">
+              <button onClick={() => setStockColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{stockVisibleCols.size}</span>
+              </button>
+              {stockColMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {ST_COLS.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={stockVisibleCols.has(col)} onChange={() => toggleStockCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {ST_COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
             <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
               {[5, 10, 15, 20, 25].map(n => (
@@ -1950,13 +1976,13 @@ export default function StocksPage() {
           <thead>
             <tr>
               <SortThMain label="Symbol" col="symbol" />
-              <SortThMain label="Name" col="name" />
-              <SortThMain label="Sector" col="sector" />
-              <SortThMain label="Current Price" col="current_price" />
-              <SortThMain label="Buy Price" col="common_buy_price" />
-              <SortThMain label="Period" col="period" />
-              <SortThMain label="Status" col="is_active" />
-              <SortThMain label="Updated" col="last_updated" />
+              {stockVisibleCols.has('name') && <SortThMain label="Name" col="name" />}
+              {stockVisibleCols.has('sector') && <SortThMain label="Sector" col="sector" />}
+              {stockVisibleCols.has('current_price') && <SortThMain label="Current Price" col="current_price" />}
+              {stockVisibleCols.has('buy_price') && <SortThMain label="Buy Price" col="common_buy_price" />}
+              {stockVisibleCols.has('period') && <SortThMain label="Period" col="period" />}
+              {stockVisibleCols.has('status') && <SortThMain label="Status" col="is_active" />}
+              {stockVisibleCols.has('updated') && <SortThMain label="Updated" col="last_updated" />}
             </tr>
           </thead>
           <tbody>
@@ -2000,16 +2026,16 @@ export default function StocksPage() {
                         <span className="font-bold text-brand-600 dark:text-brand-400 cursor-pointer" onClick={() => navigate('/admin/stocks/' + s.id)}>{s.symbol}</span>
                       </div>
                     </Td>
-                    <Td className="font-medium text-gray-900 dark:text-white">{s.name}</Td>
-                    <Td>
+                    {stockVisibleCols.has('name') && <Td className="font-medium text-gray-900 dark:text-white">{s.name}</Td>}
+                    {stockVisibleCols.has('sector') && <Td>
                       <span className="badge-blue">{s.sector || '—'}</span>
                       {s.market_cap_category && <span className="badge-purple ml-1">{s.market_cap_category}</span>}
-                    </Td>
-                    <Td className="font-medium">{fmt.currency(s.current_price)}</Td>
-                    <Td className="text-xs text-gray-500 whitespace-nowrap">{s.common_buy_price ? fmt.currency(s.common_buy_price) : '—'}</Td>
-                    <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>
-                    <Td><span className={(s.is_active || s.has_active_investors) ? 'badge-green' : 'badge-red'}>{(s.is_active || s.has_active_investors) ? 'Active' : 'Inactive'}</span></Td>
-                    <Td className="text-gray-500 text-xs">{s.last_updated ? fmt.datetime(s.last_updated) : '—'}</Td>
+                    </Td>}
+                    {stockVisibleCols.has('current_price') && <Td className="font-medium">{fmt.currency(s.current_price)}</Td>}
+                    {stockVisibleCols.has('buy_price') && <Td className="text-xs text-gray-500 whitespace-nowrap">{s.common_buy_price ? fmt.currency(s.common_buy_price) : '—'}</Td>}
+                    {stockVisibleCols.has('period') && <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>}
+                    {stockVisibleCols.has('status') && <Td><span className={(s.is_active || s.has_active_investors) ? 'badge-green' : 'badge-red'}>{(s.is_active || s.has_active_investors) ? 'Active' : 'Inactive'}</span></Td>}
+                    {stockVisibleCols.has('updated') && <Td className="text-gray-500 text-xs">{s.last_updated ? fmt.datetime(s.last_updated) : '—'}</Td>}
                   </tr>
                   {msg && (
                     <tr key={`msg-${s.id}`}>
