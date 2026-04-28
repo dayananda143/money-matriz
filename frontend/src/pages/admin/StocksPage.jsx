@@ -634,6 +634,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [settleSummaryOpen, setSettleSummaryOpen] = useState(false);
   const [sellAllOpen, setSellAllOpen] = useState(false);
   const [editHolder, setEditHolder] = useState(null);
   const [sellHolder, setSellHolder] = useState(null);
@@ -1113,6 +1114,11 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
               <button onClick={() => setAddOpen(true)} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded flex items-center gap-1">
                 <ShoppingCart size={12} /> Add Investment
               </button>
+              {allExited && (
+                <button onClick={() => setSettleSummaryOpen(true)} className="text-xs px-2 py-0.5 bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1">
+                  Settlement Summary
+                </button>
+              )}
             </div>}
             {holders.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -1222,7 +1228,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     const holder = holders.find(hh => hh.id === h.id) || h;
                     const rowKey = h.txn_id != null ? h.txn_id : h.id;
                     return (
-                    <tr key={rowKey} onClick={h.status === 'exited' ? () => setPatHolder(holder) : undefined} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${h.status === 'exited' ? 'cursor-pointer' : ''}`}>
+                    <tr key={rowKey} onClick={h.status === 'exited' ? () => setPatHolder(h) : undefined} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${h.status === 'exited' ? 'cursor-pointer' : ''}`}>
                       <Td>
                         <div className="flex items-center gap-1.5">
                           <div className="flex-shrink-0">
@@ -1372,15 +1378,152 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
         : groupHolders} open={sellAllOpen} onClose={() => setSellAllOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
       <SellModal stock={stock} holder={sellHolder} open={!!sellHolder} onClose={() => setSellHolder(null)} onDone={loadHolders} groupId={activeGroupId} />
       <EditHoldingModal stock={stock} holder={editHolder} open={!!editHolder} onClose={() => setEditHolder(null)} onDone={loadHolders} />
+
+      {/* Settlement Summary Modal */}
+      <Modal open={settleSummaryOpen} onClose={() => setSettleSummaryOpen(false)} title={`Settlement Summary — ${groups.find(g => g.id === activeGroupId)?.label || ''}`}>
+        {settleSummaryOpen && (() => {
+          const groupInvs = investments.filter(h => h.group_id === activeGroupId && h.status === 'exited');
+          // Group by user (same user may have multiple buy txns)
+          const byUser = {};
+          groupInvs.forEach(h => {
+            if (!byUser[h.id]) byUser[h.id] = { name: h.name, email: h.email, user_type: h.user_type, txns: [] };
+            byUser[h.id].txns.push(h);
+          });
+          const totalGroupSellAmt = groupInvs.reduce((s, h) => s + parseFloat(h.total_sell_amount || 0), 0) / Math.max(groupInvs.length, 1);
+          // Deduplicated: total_sell_amount is duplicated per txn in same group, so take it from first txn per user
+          const userRows = Object.values(byUser).map(u => {
+            const totalInvested = u.txns.reduce((s, t) => s + parseFloat(t.total_buy_amount || 0), 0);
+            const totalBuyQty = u.txns.reduce((s, t) => s + parseFloat(t.quantity || 0), 0);
+            // total_sell_amount is the same for all txns of same user+group — use first txn's value
+            const sellAmount = parseFloat(u.txns[0].total_sell_amount || 0);
+            const brokerage = u.txns.reduce((s, t) => s + parseFloat(t.total_sell_brokerage || 0), 0);
+            const pnl = sellAmount - totalInvested;
+            const realizedPnl = u.txns.reduce((s, t) => s + parseFloat(t.realized_pnl || 0), 0);
+            const days = u.txns[0].first_buy_date && u.txns[0].last_sell_date
+              ? Math.floor((new Date(u.txns[0].last_sell_date) - new Date(u.txns[0].first_buy_date)) / 86400000)
+              : 0;
+            const taxRate = days > 365 ? 0.125 : 0.20;
+            const netProfit = realizedPnl - brokerage;
+            const groupBrokerageShare = stockBrokerage > 0
+              ? (() => {
+                  const totalGroupPnl = groupInvs.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0) / Math.max(groupInvs.length, 1);
+                  return totalGroupPnl > 0 ? stockBrokerage * (Math.max(0, realizedPnl) / totalGroupPnl) : 0;
+                })()
+              : 0;
+            const adjNetProfit = realizedPnl - brokerage - groupBrokerageShare;
+            const tax = adjNetProfit > 0 ? adjNetProfit * taxRate : 0;
+            const pat = adjNetProfit > 0 ? adjNetProfit - tax : 0;
+            const shareholderTaking = pat * 0.30;
+            const companyTaking = pat * 0.70 + tax; // company gets 70% of PAT + tax
+            const settlement = realizedPnl >= 0
+              ? totalInvested + shareholderTaking
+              : totalInvested + realizedPnl - brokerage;
+            return { ...u, totalInvested, totalBuyQty, sellAmount, brokerage, realizedPnl, days, tax, pat, shareholderTaking, companyTaking, settlement };
+          });
+
+          const totalInvestedAll = userRows.reduce((s, r) => s + r.totalInvested, 0);
+          const totalSettlementAll = userRows.reduce((s, r) => s + r.settlement, 0);
+          const totalCompanyAll = userRows.reduce((s, r) => s + r.companyTaking, 0);
+
+          return (
+            <div className="space-y-4">
+              {userRows.length === 0 ? (
+                <p className="text-center text-gray-400 py-6">No exited investors in this transaction.</p>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    {userRows.map((u, i) => (
+                      <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-800">
+                          <div>
+                            <p className="font-semibold text-gray-900 dark:text-white text-sm">{u.name}</p>
+                            <p className="text-xs text-gray-400">{u.email} · <span className="capitalize">{u.user_type}</span></p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-400">Settlement</p>
+                            <p className={`text-lg font-bold ${u.settlement >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>{fmt.currency(u.settlement)}</p>
+                          </div>
+                        </div>
+                        <div className="px-4 py-2 space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Invested</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-200">{fmt.currency(u.totalInvested)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Realized P/L</span>
+                            <span className={`font-medium ${pnlColor(u.realizedPnl)}`}>{pnlSign(u.realizedPnl)}{fmt.currency(u.realizedPnl)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Tax <span className="text-gray-400">({u.days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span></span>
+                            <span className="font-medium text-red-500">−{fmt.currency(u.tax)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Your Share <span className="text-gray-400">(30% of PAT)</span></span>
+                            <span className="font-medium text-blue-600">+{fmt.currency(u.shareholderTaking)}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-gray-100 dark:border-gray-700 pt-1.5">
+                            <span className="font-semibold text-gray-700 dark:text-gray-300">Company Share <span className="text-gray-400">(70% of PAT + tax)</span></span>
+                            <span className="font-semibold text-purple-600">{fmt.currency(u.companyTaking)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Totals */}
+                  <div className="rounded-xl border-2 border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-900/10 p-4 space-y-2">
+                    <p className="text-xs font-bold text-brand-700 dark:text-brand-400 uppercase tracking-wide mb-2">Group Totals</p>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Total Invested (all investors)</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">{fmt.currency(totalInvestedAll)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Total Settlement to Investors</span>
+                      <span className="font-bold text-green-600 dark:text-green-400">{fmt.currency(totalSettlementAll)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t border-brand-200 dark:border-brand-700 pt-2">
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">Company Earnings (70% + tax)</span>
+                      <span className="font-bold text-purple-600">{fmt.currency(totalCompanyAll)}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+              <button onClick={() => setSettleSummaryOpen(false)} className="btn-secondary w-full">Close</button>
+            </div>
+          );
+        })()}
+      </Modal>
+
       <Modal open={!!patHolder} onClose={() => { setPatHolder(null); setPatModalTab('pat'); }} title="PAT Breakdown">
         {patHolder && (() => {
           const isPartial = patHolder.status === 'active';
+
+          // If the same user has multiple buy transactions in the same group,
+          // the backend returns the full group sell amount for each row.
+          // Allocate sells proportionally by this transaction's share of total buy qty.
+          const siblingInvs = investments.filter(inv =>
+            inv.id === patHolder.id &&
+            String(inv.group_id ?? '') === String(patHolder.group_id ?? '')
+          );
+          const totalSiblingBuyQty = siblingInvs.reduce((s, inv) => s + parseFloat(inv.quantity || 0), 0);
+          const proportion = totalSiblingBuyQty > 0
+            ? parseFloat(patHolder.quantity || 0) / totalSiblingBuyQty
+            : 1;
+          const needsProration = siblingInvs.length > 1;
+
+          const adjSellAmount = needsProration
+            ? parseFloat(patHolder.total_sell_amount || 0) * proportion
+            : parseFloat(patHolder.total_sell_amount || 0);
+          const adjSellBrokerage = needsProration
+            ? parseFloat(patHolder.total_sell_brokerage || 0) * proportion
+            : parseFloat(patHolder.total_sell_brokerage || 0);
+
           const soldQty = isPartial
             ? parseFloat(patHolder.total_bought_quantity) - parseFloat(patHolder.quantity)
             : 0;
           const pnl = isPartial
-            ? parseFloat(patHolder.total_sell_amount || 0) - (parseFloat(patHolder.avg_buy_price) * soldQty)
-            : parseFloat(patHolder.realized_pnl || 0);
+            ? adjSellAmount - (parseFloat(patHolder.avg_buy_price) * soldQty)
+            : adjSellAmount - parseFloat(patHolder.total_buy_amount || 0);
 
           const totalRealizedPnl = groupHolders.reduce((s, x) => {
             if (x.status === 'exited') return s + parseFloat(x.realized_pnl || 0);
@@ -1393,7 +1536,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           }, 0);
 
           const groupBrokerageShare = totalRealizedPnl > 0 ? stockBrokerage * (Math.max(0, pnl) / totalRealizedPnl) : 0;
-          const holderBrokerage = groupBrokerageShare + parseFloat(patHolder.total_sell_brokerage || 0);
+          const holderBrokerage = groupBrokerageShare + adjSellBrokerage;
           const netProfit = pnl - holderBrokerage;
           const days = patHolder.first_buy_date
             ? Math.floor(((patHolder.last_sell_date ? new Date(patHolder.last_sell_date) : new Date()) - new Date(patHolder.first_buy_date)) / 86400000)
