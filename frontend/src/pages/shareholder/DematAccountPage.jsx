@@ -49,7 +49,7 @@ function DematContent({ userId, userName }) {
   useEffect(() => {
     setLoading(true);
     setData(null);
-    const url = userId === 'me' ? '/stocks/my-demat' : `/stocks/brokerage-accounts/holder/${userId}`;
+    const url = userId === 'me' ? '/stocks/my-demat' : `/stocks/demat/${userId}`;
     api.get(url)
       .then(r => setData(r.data))
       .catch(console.error)
@@ -476,6 +476,8 @@ export default function DematAccountPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isShareholder = user?.user_type === 'shareholder';
+  const canViewOthers = isAdmin || isShareholder;
 
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -483,7 +485,7 @@ export default function DematAccountPage() {
   const [userType, setUserType] = useState(() => getDefaultType(user));
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canViewOthers) return;
     setUsersLoading(true);
     api.get('/users').then(r => {
       const active = r.data.filter(u => u.is_active);
@@ -494,7 +496,7 @@ export default function DematAccountPage() {
   }, []);
 
   useEffect(() => {
-    if (!isAdmin || !users.length) return;
+    if (!canViewOthers || !users.length) return;
     const typeDef = USER_TYPES.find(t => t.label === userType);
     const filtered = typeDef ? users.filter(typeDef.filter) : users;
     const self = filtered.find(u => u.id === user?.id);
@@ -502,7 +504,7 @@ export default function DematAccountPage() {
   }, [userType, users]);
 
   const typeDef = USER_TYPES.find(t => t.label === userType);
-  const filteredUsers = isAdmin ? (typeDef ? users.filter(typeDef.filter) : users) : [];
+  const filteredUsers = canViewOthers ? (typeDef ? users.filter(typeDef.filter) : users) : [];
 
   return (
     <div className="space-y-6">
@@ -517,11 +519,11 @@ export default function DematAccountPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Demat Account</h1>
             <p className="text-gray-500 text-sm mt-0.5">
-              {isAdmin ? 'View any user\'s demat holdings · read only' : 'Your personal demat holdings'}
+              {canViewOthers ? 'View any user\'s demat holdings · read only' : 'Your personal demat holdings'}
             </p>
           </div>
         </div>
-        {isAdmin && !usersLoading && (
+        {canViewOthers && !usersLoading && (
           <div className="flex items-center gap-2">
             <select className="input w-36" value={userType} onChange={e => setUserType(e.target.value)}>
               {USER_TYPES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
@@ -529,13 +531,13 @@ export default function DematAccountPage() {
             <select className="input w-52" value={selectedUser?.id || ''}
               onChange={e => setSelectedUser(filteredUsers.find(u => u.id === parseInt(e.target.value)))}>
               {!filteredUsers.length && <option value="">No users</option>}
-              {filteredUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              {filteredUsers.map(u => <option key={u.id} value={u.id}>{u.name}{u.id === user?.id ? ' (me)' : ''}</option>)}
             </select>
           </div>
         )}
       </div>
 
-      {isAdmin
+      {canViewOthers
         ? selectedUser
           ? <DematContent key={selectedUser.id} userId={selectedUser.id} userName={selectedUser.name} />
           : <p className="text-gray-400 text-sm">No user selected.</p>

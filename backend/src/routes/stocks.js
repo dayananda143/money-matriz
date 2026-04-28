@@ -113,6 +113,36 @@ router.get('/my-demat', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// GET demat for any user — accessible by admin or shareholder
+router.get('/demat/:userId', authenticate, async (req, res) => {
+  try {
+    const isShareholder = req.user.user_type === 'shareholder';
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin';
+    if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
+    const { rows } = await query(`
+      SELECT
+        s.id AS stock_id, s.symbol, s.name AS stock_name, s.sector, s.current_price, s.is_active,
+        g.id AS group_id, g.label AS group_label,
+        COALESCE(BOOL_AND(t.investment_settled) FILTER (WHERE t.type = 'buy'), false) AS investment_settled,
+        COALESCE(BOOL_AND(t.pnl_settled) FILTER (WHERE t.type = 'buy'), false) AS pnl_settled,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'buy'), 0) AS total_bought,
+        COALESCE(SUM(t.total) FILTER (WHERE t.type = 'buy'), 0) AS total_invested,
+        COALESCE(SUM(t.quantity) FILTER (WHERE t.type = 'sell'), 0) AS total_sold,
+        COALESCE(SUM(t.total) FILTER (WHERE t.type = 'sell'), 0) AS total_sell_amount,
+        MIN(t.executed_at) FILTER (WHERE t.type = 'buy') AS first_buy_date,
+        MAX(t.executed_at) FILTER (WHERE t.type = 'sell') AS last_sell_date
+      FROM stock_groups g
+      JOIN stocks s ON s.id = g.stock_id
+      LEFT JOIN transactions t ON t.group_id = g.id
+      WHERE g.holder_id = $1
+      GROUP BY s.id, s.symbol, s.name, s.sector, s.current_price, s.is_active,
+               g.id, g.label, g.investment_settled, g.pnl_settled
+      ORDER BY s.symbol ASC, g.created_at ASC
+    `, [req.params.userId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET all users who are holders in any stock group (for brokerage accounts page)
 router.get('/brokerage-accounts/holders', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
