@@ -34,6 +34,7 @@ import IdeasPage from './pages/shared/IdeasPage';
 import MoversPage from './pages/shared/MoversPage';
 import TradeRequestsPage from './pages/shared/TradeRequestsPage';
 import TodaysDataPage from './pages/shared/TodaysDataPage';
+import NewsPage from './pages/shared/NewsPage';
 
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
@@ -75,6 +76,7 @@ function ProtectedRoutes() {
 
         {/* Today's Data — all users */}
         <Route path="/todays-data" element={<TodaysDataPage />} />
+        <Route path="/news" element={<NewsPage />} />
 
         {/* Trade Requests — shareholders and admins only */}
         {(isShareholder || isAdmin) && <Route path="/trade-requests" element={<TradeRequestsPage />} />}
