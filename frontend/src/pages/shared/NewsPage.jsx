@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download } from 'lucide-react';
 import api from '../../api';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const CATEGORIES = ['Other', 'Results', 'Buyback', 'Merger/Demerger', 'Order Win', 'Dividend', 'Market Update', 'IPO', 'Regulatory'];
 
@@ -25,6 +27,83 @@ function ChangePill({ value }) {
       {pos ? '+' : ''}{num.toFixed(2)}%
     </span>
   );
+}
+
+function exportPDF(items, categories, today) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+
+  // Header banner
+  doc.setFillColor(22, 163, 74);
+  doc.rect(0, 0, W, 18, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Money Matriz', 14, 11);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('YouTube News Analysis', W - 14, 11, { align: 'right' });
+
+  // Sub-header
+  doc.setFillColor(240, 253, 244);
+  doc.rect(0, 18, W, 10, 'F');
+  doc.setTextColor(22, 101, 52);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Stock News Report — ${today}`, 14, 24.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`${items.length} news items`, W - 14, 24.5, { align: 'right' });
+
+  // Table
+  const rows = items.map((item, i) => {
+    const chg = item.change_pct != null ? parseFloat(item.change_pct) : null;
+    return [
+      today,
+      chg != null ? (chg >= 0 ? `+${chg.toFixed(2)}%` : `${chg.toFixed(2)}%`) : '—',
+      item.company || 'Market',
+      item.symbol || '—',
+      item.headline ? `${item.headline}\n${item.summary || ''}` : (item.summary || ''),
+      categories[i] || item.category || 'Other',
+      item.price != null ? `₹${parseFloat(item.price).toLocaleString('en-IN')}` : '—',
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 30,
+    head: [['Date', 'Change', 'Company', 'Symbol', 'News', 'Category', 'Price']],
+    body: rows,
+    theme: 'grid',
+    styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak', valign: 'top' },
+    headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+    columnStyles: {
+      0: { cellWidth: 20 },
+      1: { cellWidth: 18, halign: 'right' },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 28 },
+      4: { cellWidth: 'auto' },
+      5: { cellWidth: 28 },
+      6: { cellWidth: 20, halign: 'right' },
+    },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index === 1) {
+        const v = data.cell.raw;
+        if (v && v.startsWith('+')) data.cell.styles.textColor = [22, 163, 74];
+        else if (v && v.startsWith('-')) data.cell.styles.textColor = [220, 38, 38];
+      }
+    },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+  });
+
+  // Footer
+  const pages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(7);
+    doc.setTextColor(156, 163, 175);
+    doc.text(`Money Matriz · Generated on ${today} · Page ${p} of ${pages}`, W / 2, doc.internal.pageSize.getHeight() - 5, { align: 'center' });
+  }
+
+  doc.save(`news-analysis-${today.replace(/\//g, '-')}.pdf`);
 }
 
 export default function NewsPage() {
@@ -131,16 +210,25 @@ export default function NewsPage() {
                 </span>
               )}
             </div>
-            {videoId && (
-              <a
-                href={`https://www.youtube.com/watch?v=${videoId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-brand-600 dark:text-gray-400 dark:hover:text-brand-400 transition-colors"
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportPDF(items, categories, today)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
               >
-                <ExternalLink size={11} /> Watch original
-              </a>
-            )}
+                <Download size={12} />
+                Export PDF
+              </button>
+              {videoId && (
+                <a
+                  href={`https://www.youtube.com/watch?v=${videoId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-brand-600 dark:text-gray-400 dark:hover:text-brand-400 transition-colors"
+                >
+                  <ExternalLink size={11} /> Watch original
+                </a>
+              )}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
