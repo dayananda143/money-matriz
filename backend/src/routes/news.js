@@ -6,14 +6,12 @@ const { authenticate } = require('../middleware/auth');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Six models with separate TPM pools — run in parallel for ~full video coverage
+// Three models with separate TPM pools — run in parallel for ~88% video coverage
+// llama-3.3-70b: 12K TPM, llama-4-scout: separate pool, openai/gpt-oss-20b: 8K TPM (very token-efficient for Telugu)
 const BATCHES = [
-  { model: 'llama-3.3-70b-versatile',                   maxChars: 5000 },
-  { model: 'meta-llama/llama-4-scout-17b-16e-instruct', maxChars: 5000 },
-  { model: 'qwen/qwen3-32b',                            maxChars: 5000 },
-  { model: 'openai/gpt-oss-20b',                        maxChars: 5000 },
-  { model: 'groq/compound-mini',                        maxChars: 5000 },
-  { model: 'llama-3.1-8b-instant',                      maxChars: 2500 },
+  { model: 'llama-3.3-70b-versatile',                   maxChars: 5000  },
+  { model: 'meta-llama/llama-4-scout-17b-16e-instruct', maxChars: 5000  },
+  { model: 'openai/gpt-oss-20b',                        maxChars: 13000 },
 ];
 
 function extractVideoId(url) {
@@ -52,10 +50,12 @@ Each item must have:
 Do NOT skip any company. Output ONLY the raw JSON array, nothing else.`;
 
 async function analyzeChunk(chunk, model) {
+  // Larger chunks need more output tokens; openai model handles 13K chars
+  const maxTokens = chunk.length > 6000 ? 4000 : 2000;
   try {
     const completion = await groq.chat.completions.create({
       model,
-      max_tokens: 2000,
+      max_tokens: maxTokens,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: `Transcript segment:\n\n${chunk}` },
@@ -68,6 +68,24 @@ async function analyzeChunk(chunk, model) {
     return [];
   }
 }
+
+// POST /api/news/transcript — returns raw transcript for the Claude manual prompt workflow
+router.post('/transcript', authenticate, async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url is required' });
+  const videoId = extractVideoId(url);
+  if (!videoId) return res.status(400).json({ error: 'Invalid YouTube URL' });
+  try {
+    const segments = await YoutubeTranscript.fetchTranscript(videoId);
+    const transcript = segments.map(s => s.text).join(' ');
+    if (!transcript || transcript.trim().length < 20) {
+      return res.status(422).json({ error: 'Transcript is empty or too short.' });
+    }
+    res.json({ transcript });
+  } catch (e) {
+    return res.status(422).json({ error: 'Could not fetch transcript. Make sure the video has captions/subtitles enabled.' });
+  }
+});
 
 // POST /api/news/youtube
 router.post('/youtube', authenticate, async (req, res) => {

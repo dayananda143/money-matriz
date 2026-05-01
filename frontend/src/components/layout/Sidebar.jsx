@@ -15,7 +15,6 @@ const navConfig = {
     { to: '/funds', icon: Wallet, label: 'Fund Movements' },
     { to: '/movers', icon: Activity, label: 'Movers' },
     { to: '/todays-data', icon: Newspaper, label: "Today's Data" },
-    { to: '/news', icon: Tv2, label: 'News' },
   ],
   shareholder: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -23,7 +22,6 @@ const navConfig = {
     { to: '/transactions', icon: ArrowLeftRight, label: 'My Transactions' },
     { to: '/movers', icon: Activity, label: 'Movers' },
     { to: '/todays-data', icon: Newspaper, label: "Today's Data" },
-    { to: '/news', icon: Tv2, label: 'News' },
     { to: '/ideas', icon: Lightbulb, label: 'Ideas' },
   ],
   shareholder_extra: [

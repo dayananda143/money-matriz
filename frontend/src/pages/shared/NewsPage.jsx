@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download } from 'lucide-react';
+import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download, ClipboardCopy, Upload, Check, FileJson, FileSpreadsheet } from 'lucide-react';
 import api from '../../api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 const CATEGORIES = ['Other', 'Results', 'Buyback', 'Merger/Demerger', 'Order Win', 'Dividend', 'Market Update', 'IPO', 'Regulatory'];
 
@@ -106,6 +107,51 @@ function exportPDF(items, categories, today) {
   doc.save(`news-analysis-${today.replace(/\//g, '-')}.pdf`);
 }
 
+function exportExcel(items, categories, today) {
+  const rows = items.map((item, i) => {
+    const chg = item.change_pct != null ? parseFloat(item.change_pct) : null;
+    return {
+      Date: today,
+      Company: item.company || 'Market',
+      Symbol: item.symbol || '',
+      'Change %': chg != null ? (chg >= 0 ? `+${chg.toFixed(2)}%` : `${chg.toFixed(2)}%`) : '',
+      Price: item.price != null ? parseFloat(item.price) : '',
+      Headline: item.headline || '',
+      Summary: item.summary || '',
+      Category: categories[i] || item.category || 'Other',
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 12 }, { wch: 28 }, { wch: 18 }, { wch: 10 },
+    { wch: 10 }, { wch: 30 }, { wch: 60 }, { wch: 18 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'News Analysis');
+  XLSX.writeFile(wb, `news-analysis-${today.replace(/\//g, '-')}.xlsx`);
+}
+
+const CLAUDE_PROMPT = `You are a financial news analyst. I will give you a Telugu stock market news video transcript. Extract ALL news items and return ONLY a JSON array — no explanation, no markdown, just raw JSON.
+
+Each item in the array must have exactly these fields:
+- "company": company name in English (use null for broad market news like Nifty, Sensex, gold, US Fed)
+- "symbol": NSE/BSE symbol in format "NSE:SYMBOL" or "BSE:SYMBOL" (null if not mentioned)
+- "change_pct": percentage change as a number like 2.45 or -1.18 (null if not mentioned)
+- "price": stock price as a number (null if not mentioned)
+- "headline": concise 4–6 word English headline
+- "summary": 1–2 sentence English summary of the news
+- "category": exactly one of — "Results", "Buyback", "Merger/Demerger", "Order Win", "Dividend", "Market Update", "IPO", "Regulatory", "Other"
+
+Rules:
+- Do NOT skip any company or news item, even if minor
+- Translate all Telugu content to English
+- Return ONLY the raw JSON array starting with [ and ending with ]
+- No trailing commas, no comments, valid JSON only
+
+Transcript:
+[PASTE YOUR TRANSCRIPT HERE]`;
+
 export default function NewsPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -114,6 +160,12 @@ export default function NewsPage() {
   const [error, setError] = useState('');
   const [videoId, setVideoId] = useState('');
   const [coverage, setCoverage] = useState(0);
+  const [showImport, setShowImport] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonError, setJsonError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptReady, setTranscriptReady] = useState(false);
 
   const generate = async () => {
     if (!url.trim()) return;
@@ -136,6 +188,53 @@ export default function NewsPage() {
       setError(e.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [filledPrompt, setFilledPrompt] = useState('');
+
+  const getTranscript = async () => {
+    if (!url.trim()) return;
+    setTranscriptLoading(true);
+    setTranscriptReady(false);
+    setError('');
+    try {
+      const res = await api.post('/news/transcript', { url: url.trim() }, { timeout: 30000 });
+      const filled = CLAUDE_PROMPT.replace('[PASTE YOUR TRANSCRIPT HERE]', res.data.transcript);
+      setFilledPrompt(filled);
+      navigator.clipboard.writeText(filled);
+      setTranscriptReady(true);
+      setTimeout(() => setTranscriptReady(false), 4000);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not fetch transcript.');
+    } finally {
+      setTranscriptLoading(false);
+    }
+  };
+
+  const copyPrompt = () => {
+    const text = filledPrompt || CLAUDE_PROMPT;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const importJson = () => {
+    setJsonError('');
+    try {
+      const stripped = jsonText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(stripped);
+      if (!Array.isArray(parsed)) { setJsonError('Must be a JSON array [ ... ]'); return; }
+      const cats = {};
+      parsed.forEach((item, i) => { cats[i] = item.category || 'Other'; });
+      setItems(parsed);
+      setCategories(cats);
+      setVideoId('');
+      setCoverage(0);
+      setShowImport(false);
+      setJsonText('');
+    } catch {
+      setJsonError('Invalid JSON — check for syntax errors and try again.');
     }
   };
 
@@ -185,7 +284,98 @@ export default function NewsPage() {
               </>
             )}
           </button>
+          <button
+            onClick={getTranscript}
+            disabled={transcriptLoading || !url.trim()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap border border-gray-200 dark:border-gray-700"
+          >
+            {transcriptLoading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                Fetching…
+              </>
+            ) : transcriptReady ? (
+              <>
+                <Check size={15} className="text-green-500" />
+                Prompt Copied!
+              </>
+            ) : (
+              <>
+                <ClipboardCopy size={15} />
+                Get Transcript
+              </>
+            )}
+          </button>
         </div>
+      </div>
+
+      {transcriptReady && (
+        <div className="flex items-start gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-xs text-green-700 dark:text-green-400">
+          <Check size={14} className="shrink-0 mt-0.5" />
+          <span>Transcript fetched and prompt copied to clipboard. Paste it into <strong>Claude.ai</strong>, then copy the JSON output and use <strong>Paste JSON</strong> below.</span>
+        </div>
+      )}
+
+      {/* Import / Claude prompt panel */}
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-2">
+            <FileJson size={14} className="text-gray-400" />
+            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Import from Claude AI</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyPrompt}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              {copied ? <Check size={12} className="text-green-500" /> : <ClipboardCopy size={12} />}
+              {copied ? 'Copied!' : 'Copy Prompt'}
+            </button>
+            <button
+              onClick={() => { setShowImport(v => !v); setJsonError(''); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
+            >
+              <Upload size={12} />
+              Paste JSON
+            </button>
+          </div>
+        </div>
+        {showImport && (
+          <div className="p-4 space-y-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              1. Paste the YouTube URL above → click <strong>Get Transcript</strong> — this auto-copies the full prompt with transcript into your clipboard.<br />
+              2. Open <strong>claude.ai</strong> → paste → send. Copy the JSON it returns.<br />
+              3. Paste that JSON below and click <strong>Load Table</strong>.
+            </p>
+            <textarea
+              value={jsonText}
+              onChange={e => { setJsonText(e.target.value); setJsonError(''); }}
+              placeholder='[{"company":"Reliance","symbol":"NSE:RELIANCE","change_pct":1.2,...}, ...]'
+              rows={6}
+              className="w-full px-3 py-2.5 text-xs font-mono border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
+            />
+            {jsonError && (
+              <p className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle size={13} />{jsonError}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={importJson}
+                disabled={!jsonText.trim()}
+                className="px-4 py-2 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Load Table
+              </button>
+              <button
+                onClick={() => { setShowImport(false); setJsonText(''); setJsonError(''); }}
+                className="px-4 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Error */}
@@ -211,6 +401,13 @@ export default function NewsPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportExcel(items, categories, today)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+              >
+                <FileSpreadsheet size={12} />
+                Export Excel
+              </button>
               <button
                 onClick={() => exportPDF(items, categories, today)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"

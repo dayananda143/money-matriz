@@ -76,7 +76,7 @@ function ProtectedRoutes() {
 
         {/* Today's Data — all users */}
         <Route path="/todays-data" element={<TodaysDataPage />} />
-        <Route path="/news" element={<NewsPage />} />
+        {isAdmin && <Route path="/news" element={<NewsPage />} />}
 
         {/* Trade Requests — shareholders and admins only */}
         {(isShareholder || isAdmin) && <Route path="/trade-requests" element={<TradeRequestsPage />} />}
