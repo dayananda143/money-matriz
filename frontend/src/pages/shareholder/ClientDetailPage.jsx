@@ -50,30 +50,6 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   doc.setFillColor(...GOLD);
   doc.rect(0, BANNER_H, W, 1, 'F');
 
-  // ── Logo in banner ─────────────────────────────────────────────
-  try {
-    const logoDataUrl = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width; canvas.height = img.height;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        resolve(canvas.toDataURL('image/png'));
-      };
-      img.onerror = reject;
-      img.src = '/logo.png';
-    });
-    doc.addImage(logoDataUrl, 'PNG', 4, 3, 22, 22);
-  } catch {
-    doc.setFillColor(...WHITE);
-    doc.circle(15, 14, 10, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(...GREEN_DARK);
-    doc.text('MM', 15, 17, { align: 'center' });
-  }
-
   // ── Title + icon together, centred in banner ───────────────────
   // Icon sits just left of the title text
   const titleIconX = 88;  // icon left edge

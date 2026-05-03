@@ -91,6 +91,7 @@ function ProtectedRoutes() {
 
         {/* Admin: all clients */}
         {isAdmin && <Route path="/admin/clients" element={<AllClientsPage />} />}
+        {isAdmin && <Route path="/admin/clients/:scheme" element={<AllClientsPage />} />}
 
         {/* Company dashboard — shareholders + admins */}
         {(isAdmin || isShareholder) && <Route path="/company/dashboard" element={<CompanyDashboardPage />} />}

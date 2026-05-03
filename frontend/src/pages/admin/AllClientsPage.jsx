@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { Search, ChevronLeft, ChevronRight, Users, Wallet, TrendingUp, LayoutGrid, ChevronUp, ChevronDown, Columns } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
@@ -18,7 +18,13 @@ const SCHEME_COLORS = [
 const AC_COLS = ['manager', 'scheme', 'cash', 'portfolio', 'aum', 'status', 'joined'];
 const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', cash: 'Cash Balance', portfolio: 'Portfolio Value', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
 
+const toSlug = s => s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+const fromSlug = (slug, schemes) => schemes.find(s => toSlug(s) === slug) || 'All';
+
 export default function AllClientsPage() {
+  const { scheme: schemeSlug } = useParams();
+  const navigate = useNavigate();
+
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -26,7 +32,7 @@ export default function AllClientsPage() {
   const [limit, setLimit] = useState(10);
   const [schemeTab, setSchemeTab] = useState('All');
   const [statusTab, setStatusTab] = useState('active');
-  const [managerFilter, setManagerFilter] = useState('All');
+  const [managerFilter, setManagerFilter] = useState(() => localStorage.getItem('all_clients_manager') || 'All');
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [visibleCols, setVisibleCols] = useState(() => {
@@ -76,6 +82,26 @@ export default function AllClientsPage() {
     });
     return Array.from(set).sort();
   }, [clients]);
+
+  // Sync tab from URL param once schemes are known
+  useEffect(() => {
+    if (!schemeList.length) return;
+    if (schemeSlug) {
+      const matched = fromSlug(schemeSlug, schemeList);
+      setSchemeTab(matched);
+    } else {
+      setSchemeTab('All');
+    }
+  }, [schemeSlug, schemeList.join(',')]);
+
+  const selectScheme = (scheme) => {
+    setPage(1);
+    if (scheme === 'All') {
+      navigate('/admin/clients');
+    } else {
+      navigate(`/admin/clients/${toSlug(scheme)}`);
+    }
+  };
 
   // Per-scheme stats (active clients only)
   const schemeStats = useMemo(() => {
@@ -168,7 +194,7 @@ export default function AllClientsPage() {
           return (
             <button
               key={s.scheme}
-              onClick={() => { setSchemeTab(s.scheme); setPage(1); }}
+              onClick={() => selectScheme(s.scheme)}
               className={`text-left rounded-xl border-2 p-4 transition-all ${
                 isSelected
                   ? isAll
@@ -249,7 +275,7 @@ export default function AllClientsPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <select
               value={managerFilter}
-              onChange={e => { setManagerFilter(e.target.value); setPage(1); }}
+              onChange={e => { setManagerFilter(e.target.value); localStorage.setItem('all_clients_manager', e.target.value); setPage(1); }}
               className="text-xs border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none"
             >
               {managers.map(m => <option key={m} value={m}>{m === 'All' ? 'All Managers' : m}</option>)}
