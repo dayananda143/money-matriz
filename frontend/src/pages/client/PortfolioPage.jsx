@@ -666,7 +666,7 @@ const ACTIVE_COLS  = ['name','sector','buy_date','qty','avg_buy','current_price'
 const EXITED_COLS  = ['name','sector','shares','avg_buy','amt_invested','buy_date','sell_date','realized_pnl','pnl_pct'];
 const COL_LABEL    = { name:'Name', sector:'Sector', buy_date:'Buy Date', qty:'Qty', avg_buy:'Avg Buy', current_price:'Current Price', current_value:'Current Value', pnl:'P&L', pnl_pct:'P&L %', shares:'Shares', amt_invested:'Amt Invested', sell_date:'Sell Date', realized_pnl:'Realized P&L' };
 
-function HoldingsDetail({ userId, userName }) {
+function HoldingsDetail({ userId, userName, hideExport = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('active');
@@ -744,14 +744,16 @@ function HoldingsDetail({ userId, userName }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end gap-2">
-        <button onClick={() => setExcelDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
-          <Download size={14} /> Export Excel
-        </button>
-        <button onClick={() => setExportDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
-          <Download size={14} /> Export PDF
-        </button>
-      </div>
+      {!hideExport && (
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setExcelDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
+            <Download size={14} /> Export Excel
+          </button>
+          <button onClick={() => setExportDialog(true)} className="btn-secondary text-sm flex items-center gap-1.5">
+            <Download size={14} /> Export PDF
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <div className="card p-4">
           <p className="text-xs text-gray-500">SIP Amount</p>
@@ -1264,7 +1266,7 @@ export default function PortfolioPage() {
             </div>
           )}
         </div>
-        {selectedUser && <HoldingsDetail userId={selectedUser.id} userName={selectedUser.name} />}
+        {selectedUser && <HoldingsDetail userId={selectedUser.id} userName={selectedUser.name} hideExport={userType === 'Client'} />}
       </div>
     );
   }
