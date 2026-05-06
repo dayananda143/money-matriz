@@ -179,7 +179,7 @@ function DematContent({ userId, userName }) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...GRAY_MID);
-    doc.text(`Generated on ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+    doc.text(`Generated on ${fmt.date(now.toISOString())}`, W - 10, BANNER_H + 6.5, { align: 'right' });
 
     // ── Summary panel (left) ────────────────────────────────────────
     const CONTENT_Y = BANNER_H + 10;
@@ -239,9 +239,9 @@ function DematContent({ userId, userName }) {
       const remaining = parseFloat(h.total_bought) - parseFloat(h.total_sold);
       const currentValue = remaining * parseFloat(h.current_price);
       const base = [
-        h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—',
+        h.first_buy_date ? fmt.date(h.first_buy_date) : '—',
       ];
-      if (tab === 'exited') base.push(h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—');
+      if (tab === 'exited') base.push(h.last_sell_date ? fmt.date(h.last_sell_date) : '—');
       base.push(
         h.stock_name || h.symbol,
         h.group_label || '—',
@@ -308,9 +308,9 @@ function DematContent({ userId, userName }) {
         'Stock Name': h.stock_name || '',
         'Sector': h.sector || '',
         'Group': h.group_label || '',
-        'Buy Date': h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '',
+        'Buy Date': h.first_buy_date ? fmt.date(h.first_buy_date) : '',
       };
-      if (tab === 'exited') base['Sell Date'] = h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '';
+      if (tab === 'exited') base['Sell Date'] = h.last_sell_date ? fmt.date(h.last_sell_date) : '';
       base['Qty Bought'] = parseFloat(h.total_bought);
       base['Qty Remaining'] = remaining;
       base['Total Invested'] = parseFloat(h.total_invested);
@@ -425,8 +425,8 @@ function DematContent({ userId, userName }) {
                     {h.sector && <p className="text-xs text-gray-400">{h.sector}</p>}
                   </Td>
                   <Td className="text-sm text-gray-700 dark:text-gray-300">{h.group_label}</Td>
-                  <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>
-                  {tab === 'exited' && <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                  <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>
+                  {tab === 'exited' && <Td className="text-xs text-gray-500">{h.last_sell_date ? fmt.date(h.last_sell_date) : '—'}</Td>}
                   <Td className="font-medium">{fmt.number(h.total_bought, 2)}</Td>
                   <Td className="font-medium">{fmt.number(remaining, 2)}</Td>
                   <Td>{fmt.currency(h.total_invested)}</Td>

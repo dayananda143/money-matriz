@@ -27,6 +27,10 @@ function sortHoldings(rows, sort) {
       };
       av = getPct(a); bv = getPct(b);
     }
+    else if (sort.key === 'first_buy_date' || sort.key === 'last_sell_date') {
+      av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0;
+      bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0;
+    }
     else { av = parseFloat(a[sort.key] || 0); bv = parseFloat(b[sort.key] || 0); }
     if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
     if (isNaN(av)) av = 0; if (isNaN(bv)) bv = 0;
@@ -92,7 +96,7 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...GRAY_MID);
-  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+  doc.text(`Generated on ${fmt.date(new Date().toISOString())}`, W - 10, BANNER_H + 6.5, { align: 'right' });
 
   const holdings = portfolio?.holdings || [];
   const activeHoldings = holdings.filter(h => h.status === 'active');
@@ -158,12 +162,12 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
       ? parseFloat(h.pnl_percent)
       : (parseFloat(h.total_buy_amount) > 0 ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0);
     return [
-      h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—',
+      h.first_buy_date ? fmt.date(h.first_buy_date) : '—',
       h.stock_name || h.symbol,
       parseFloat(h.avg_buy_price).toFixed(2),
       parseFloat(h.total_buy_amount).toFixed(2),
       parseFloat(h.total_bought_quantity || h.quantity).toFixed(2),
-      h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '',
+      h.last_sell_date ? fmt.date(h.last_sell_date) : '',
       parseFloat(h.avg_sell_price) > 0 ? parseFloat(h.avg_sell_price).toFixed(2) : '',
       `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
     ];
@@ -275,7 +279,7 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...GRAY_MID);
-    doc.text(`Generated on ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+    doc.text(`Generated on ${fmt.date(new Date().toISOString())}`, W - 10, BANNER_H + 6.5, { align: 'right' });
     doc.setFillColor(...GREEN_DARK);
     doc.rect(0, H - 8, W, 8, 'F');
     doc.setFillColor(...GOLD);
@@ -364,7 +368,7 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
 function exportToExcel({ userName, active, exited, fy = null, sort = null }) {
   active  = sortHoldings(active,  sort);
   exited  = sortHoldings(exited,  sort);
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+  const fmtDate = d => d ? fmt.date(d) : '—';
   const fmtNum  = n => parseFloat(parseFloat(n || 0).toFixed(2));
 
   const activeRows = active.map(h => ({
@@ -672,7 +676,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
   const [tab, setTab] = useState('active');
   const [patHolding, setPatHolding] = useState(null);
   const [patTab, setPatTab] = useState('pat');
-  const [sort, setSort] = useState({ key: 'current_value', dir: 'desc' });
+  const [sort, setSort] = useState({ key: 'first_buy_date', dir: 'desc' });
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
@@ -813,6 +817,10 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
             av = ba > 0 ? parseFloat(a.realized_pnl) / ba * 100 : 0;
             bv = bb > 0 ? parseFloat(b.realized_pnl) / bb * 100 : 0;
           }
+          else if (sort.key === 'first_buy_date' || sort.key === 'last_sell_date') {
+            av = a[sort.key] ? new Date(a[sort.key]).getTime() : 0;
+            bv = b[sort.key] ? new Date(b[sort.key]).getTime() : 0;
+          }
           else { av = parseFloat(a[sort.key] || 0); bv = parseFloat(b[sort.key] || 0); }
           if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
           return sort.dir === 'asc' ? av - bv : bv - av;
@@ -824,11 +832,11 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
           <div className="card">
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 flex-wrap gap-2">
               <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
-                <button onClick={() => { setTab('active'); setPage(1); setSort({ key: 'current_value', dir: 'desc' }); }}
+                <button onClick={() => { setTab('active'); setPage(1); setSort({ key: 'first_buy_date', dir: 'desc' }); }}
                   className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'active' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
                   Active <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400">{active.length}</span>
                 </button>
-                <button onClick={() => { setTab('exited'); setPage(1); setSort({ key: 'realized_pnl', dir: 'desc' }); }}
+                <button onClick={() => { setTab('exited'); setPage(1); setSort({ key: 'first_buy_date', dir: 'desc' }); }}
                   className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'exited' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
                   Exited <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400">{exited.length}</span>
                 </button>
@@ -894,7 +902,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                       {visible.has('name') && <Td>{h.stock_name}</Td>}
                       {visible.has('sector') && <Td><span className="badge-blue">{h.sector || '—'}</span>{h.market_cap_category && <span className="badge-purple ml-1">{h.market_cap_category}</span>}</Td>}
-                      {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                      {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>}
                       {visible.has('qty') && <Td>{fmt.number(h.quantity, 2)}</Td>}
                       {visible.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
                       {visible.has('current_price') && <Td>{fmt.currency(h.current_price)}</Td>}
@@ -932,8 +940,8 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
                         {visible.has('shares') && <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>}
                         {visible.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
                         {visible.has('amt_invested') && <Td>{fmt.currency(h.total_buy_amount)}</Td>}
-                        {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
-                        {visible.has('sell_date') && <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                        {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>}
+                        {visible.has('sell_date') && <Td className="text-xs text-gray-500">{h.last_sell_date ? fmt.date(h.last_sell_date) : '—'}</Td>}
                         {visible.has('realized_pnl') && <Td><span className={pnlColor(h.realized_pnl)}>{pnlSign(h.realized_pnl)}{fmt.currency(h.realized_pnl)}</span></Td>}
                         {visible.has('pnl_pct') && <Td><span className={pnlColor(pct)}>{pnlSign(pct)}{fmt.percent(pct)}</span></Td>}
                       </tr>
@@ -1196,10 +1204,105 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
 }
 
 const USER_TYPES = [
+  { label: 'All',         filter: null },
   { label: 'Employee',    filter: u => u.user_type === 'employee' },
   { label: 'Shareholder', filter: u => u.user_type === 'shareholder' },
   { label: 'Client',      filter: u => u.user_type === 'client' },
 ];
+
+function AllHoldingsView() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    api.get('/dashboard/all-holdings')
+      .then(r => setRows(r.data))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = rows.filter(r =>
+    !search || r.symbol.toLowerCase().includes(search.toLowerCase()) || (r.stock_name || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  const totalValue    = rows.reduce((s, r) => s + parseFloat(r.current_value || 0), 0);
+  const totalInvested = rows.reduce((s, r) => s + parseFloat(r.quantity || 0) * parseFloat(r.avg_buy_price || 0), 0);
+  const totalPnl      = rows.reduce((s, r) => s + parseFloat(r.unrealized_pnl || 0), 0);
+  const totalPnlPct   = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
+
+  if (loading) return <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Stocks',    value: rows.length, isNum: false },
+          { label: 'Total Invested',  value: fmt.compact(totalInvested), isNum: false },
+          { label: 'Portfolio Value', value: fmt.compact(totalValue), isNum: false },
+          { label: 'Unrealized P/L',  value: `${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(2)}%`, isNum: true, pnl: totalPnlPct },
+        ].map(c => (
+          <div key={c.label} className="card p-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{c.label}</p>
+            <p className={`text-lg font-bold ${c.isNum ? (c.pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400') : 'text-gray-900 dark:text-white'}`}>{c.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-xs">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search symbol or name…"
+          className="input pl-8 text-sm w-full"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                {['Symbol', 'Name', 'Sector', 'Qty', 'Avg Buy', 'Current Price', 'Value', 'P/L'].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">No holdings found</td></tr>
+              )}
+              {filtered.map(r => {
+                const pnl = parseFloat(r.unrealized_pnl || 0);
+                const invested = parseFloat(r.quantity) * parseFloat(r.avg_buy_price);
+                const pnlPct = invested > 0 ? (pnl / invested) * 100 : 0;
+                const pos = pnlPct >= 0;
+                return (
+                  <tr key={r.symbol} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <td className="px-4 py-3 font-mono font-semibold text-brand-600 dark:text-brand-400">{r.symbol}</td>
+                    <td className="px-4 py-3 text-gray-900 dark:text-white">{r.stock_name || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{r.sector || '—'}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{parseFloat(r.quantity).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">₹{parseFloat(r.avg_buy_price).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">₹{parseFloat(r.current_price).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium text-gray-900 dark:text-white">{fmt.compact(r.current_value)}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${pos ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                      {pos ? '+' : ''}{pnlPct.toFixed(2)}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function getDefaultType(u) {
   if (u?.user_type === 'employee') return 'Employee';
@@ -1233,22 +1336,24 @@ export default function PortfolioPage() {
   // When type changes, try to keep self selected; otherwise pick first of that type
   useEffect(() => {
     if (!canViewOthers || !users.length) return;
+    if (userType === 'All') return;
     const typeDef = USER_TYPES.find(t => t.label === userType);
-    const filtered = typeDef ? users.filter(typeDef.filter) : users;
+    const filtered = typeDef?.filter ? users.filter(typeDef.filter) : users;
     const self = filtered.find(u => u.id === user?.id);
     setSelectedUser(self || filtered[0] || null);
   }, [userType, users]);
 
   if (canViewOthers) {
+    const isAll = userType === 'All';
     const typeDef = USER_TYPES.find(t => t.label === userType);
-    const filteredUsers = typeDef ? users.filter(typeDef.filter) : users;
+    const filteredUsers = (!isAll && typeDef?.filter) ? users.filter(typeDef.filter) : users;
 
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Portfolio</h1>
-            <p className="text-gray-500 text-sm mt-1">View any user's portfolio · read only</p>
+            <p className="text-gray-500 text-sm mt-1">{isAll ? 'All stocks across all portfolios' : 'View any user\'s portfolio · read only'}</p>
           </div>
           {!usersLoading && (
             <div className="flex items-center gap-2">
@@ -1257,16 +1362,21 @@ export default function PortfolioPage() {
                   <option key={t.label} value={t.label}>{t.label}</option>
                 ))}
               </select>
-              <select className="input w-52" value={selectedUser?.id || ''} onChange={e => setSelectedUser(filteredUsers.find(u => u.id === parseInt(e.target.value)))}>
-                {!filteredUsers.length && <option value="">No users</option>}
-                {filteredUsers.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}{u.id === user?.id ? ' (me)' : ''}</option>
-                ))}
-              </select>
+              {!isAll && (
+                <select className="input w-52" value={selectedUser?.id || ''} onChange={e => setSelectedUser(filteredUsers.find(u => u.id === parseInt(e.target.value)))}>
+                  {!filteredUsers.length && <option value="">No users</option>}
+                  {filteredUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.name}{u.id === user?.id ? ' (me)' : ''}</option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
-        {selectedUser && <HoldingsDetail userId={selectedUser.id} userName={selectedUser.name} hideExport={userType === 'Client'} />}
+        {isAll
+          ? <AllHoldingsView />
+          : selectedUser && <HoldingsDetail userId={selectedUser.id} userName={selectedUser.name} hideExport={userType === 'Client'} />
+        }
       </div>
     );
   }

@@ -90,7 +90,7 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...GRAY_MID);
-  doc.text(`Generated on ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}`, W - 10, BANNER_H + 6.5, { align: 'right' });
+  doc.text(`Generated on ${fmt.date(new Date().toISOString())}`, W - 10, BANNER_H + 6.5, { align: 'right' });
 
   // ── Compute summary data ───────────────────────────────────────
   const holdings = portfolio?.holdings || [];
@@ -163,12 +163,12 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
       ? parseFloat(h.pnl_percent)
       : (parseFloat(h.total_buy_amount) > 0 ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0);
     return [
-      h.first_buy_date  ? new Date(h.first_buy_date).toLocaleDateString('en-IN')  : '—',
+      h.first_buy_date  ? fmt.date(h.first_buy_date)  : '—',
       h.stock_name || h.symbol,
       parseFloat(h.avg_buy_price).toFixed(2),
       parseFloat(h.total_buy_amount).toFixed(2),
       parseFloat(h.total_bought_quantity || h.quantity).toFixed(2),
-      h.last_sell_date  ? new Date(h.last_sell_date).toLocaleDateString('en-IN')  : '',
+      h.last_sell_date  ? fmt.date(h.last_sell_date)  : '',
       parseFloat(h.avg_sell_price) > 0 ? parseFloat(h.avg_sell_price).toFixed(2) : '',
       `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
     ];
@@ -246,7 +246,7 @@ function exportToExcel({ client, portfolio, transactions, funds }) {
   const activeRows = activeHoldings.map(h => ({
     'Symbol': h.symbol,
     'Name': h.stock_name || '',
-    'Buy Date': h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '',
+    'Buy Date': h.first_buy_date ? fmt.date(h.first_buy_date) : '',
     'Qty': parseFloat(h.quantity),
     'Avg Buy Price': parseFloat(h.avg_buy_price),
     'Current Price': parseFloat(h.current_price),
@@ -264,8 +264,8 @@ function exportToExcel({ client, portfolio, transactions, funds }) {
     return {
       'Symbol': h.symbol,
       'Name': h.stock_name || '',
-      'Buy Date': h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '',
-      'Sell Date': h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '',
+      'Buy Date': h.first_buy_date ? fmt.date(h.first_buy_date) : '',
+      'Sell Date': h.last_sell_date ? fmt.date(h.last_sell_date) : '',
       'Qty Bought': parseFloat(h.total_bought_quantity),
       'Avg Buy Price': parseFloat(h.avg_buy_price),
       'Invested Amount': parseFloat(h.total_buy_amount),
@@ -637,7 +637,7 @@ export default function ClientDetailPage() {
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                       {holdingsVisibleCols.active.has('name') && <Td>{h.stock_name}</Td>}
-                      {holdingsVisibleCols.active.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                      {holdingsVisibleCols.active.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>}
                       {holdingsVisibleCols.active.has('qty') && <Td>{fmt.number(h.quantity, 2)}</Td>}
                       {holdingsVisibleCols.active.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
                       {holdingsVisibleCols.active.has('current') && <Td>{fmt.currency(h.current_price)}</Td>}
@@ -666,8 +666,8 @@ export default function ClientDetailPage() {
                     <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <Td><span className="font-bold text-brand-600 dark:text-brand-400">{h.symbol}</span></Td>
                       {holdingsVisibleCols.exited.has('name') && <Td>{h.stock_name}</Td>}
-                      {holdingsVisibleCols.exited.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? new Date(h.first_buy_date).toLocaleDateString('en-IN') : '—'}</Td>}
-                      {holdingsVisibleCols.exited.has('sell_date') && <Td className="text-xs text-gray-500">{h.last_sell_date ? new Date(h.last_sell_date).toLocaleDateString('en-IN') : '—'}</Td>}
+                      {holdingsVisibleCols.exited.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>}
+                      {holdingsVisibleCols.exited.has('sell_date') && <Td className="text-xs text-gray-500">{h.last_sell_date ? fmt.date(h.last_sell_date) : '—'}</Td>}
                       {holdingsVisibleCols.exited.has('qty_bought') && <Td>{fmt.number(h.total_bought_quantity, 2)}</Td>}
                       {holdingsVisibleCols.exited.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
                       {holdingsVisibleCols.exited.has('invested') && <Td>{fmt.currency(h.total_buy_amount)}</Td>}

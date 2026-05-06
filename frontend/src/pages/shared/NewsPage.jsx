@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download, ClipboardCopy, Upload, Check, FileJson, FileSpreadsheet } from 'lucide-react';
 import api from '../../api';
+import { fmt } from '../../utils/format';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -238,7 +239,7 @@ export default function NewsPage() {
     }
   };
 
-  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const today = fmt.date(new Date().toISOString());
 
   return (
     <div className="space-y-5">

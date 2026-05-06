@@ -465,7 +465,7 @@ function RequestCard({ req, currentUser, canReview, onApprove, onReject, onEdit,
             <div><p className="text-gray-400">Quantity</p><p className="font-medium text-gray-900 dark:text-white">{fmt.number(req.quantity, 4)}</p></div>
             <div><p className="text-gray-400">Buy Price</p><p className="font-medium text-gray-900 dark:text-white">{fmt.currency(req.buy_price)}</p></div>
             <div><p className="text-gray-400">Amount</p><p className="font-medium text-gray-900 dark:text-white">{fmt.currency(req.amount)}</p></div>
-            <div><p className="text-gray-400">Submitted</p><p className="font-medium text-gray-900 dark:text-white">{new Date(req.created_at).toLocaleDateString()}</p></div>
+            <div><p className="text-gray-400">Submitted</p><p className="font-medium text-gray-900 dark:text-white">{fmt.date(req.created_at)}</p></div>
           </div>
           {req.notes && (
             <p className="text-xs text-gray-600 dark:text-gray-300 pt-1"><span className="text-gray-400">Notes: </span>{req.notes}</p>
@@ -474,7 +474,7 @@ function RequestCard({ req, currentUser, canReview, onApprove, onReject, onEdit,
             <p className="text-xs text-red-600 dark:text-red-400 pt-1"><span className="font-medium">Rejection reason: </span>{req.rejection_reason}</p>
           )}
           {req.reviewed_by_name && (
-            <p className="text-xs text-gray-400 pt-1">Reviewed by <span className="font-medium text-gray-600 dark:text-gray-300">{req.reviewed_by_name}</span> on {new Date(req.reviewed_at).toLocaleDateString()}</p>
+            <p className="text-xs text-gray-400 pt-1">Reviewed by <span className="font-medium text-gray-600 dark:text-gray-300">{req.reviewed_by_name}</span> on {fmt.date(req.reviewed_at)}</p>
           )}
         </div>
       )}

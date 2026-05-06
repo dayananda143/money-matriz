@@ -107,7 +107,7 @@ async function exportToPDF({ txs, title, visibleCols, isAdmin }) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(110, 110, 110);
-  doc.text(`Generated: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`, W - 10, BANNER_H + 6, { align: 'right' });
+  doc.text(`Generated: ${fmt.date(new Date().toISOString())}`, W - 10, BANNER_H + 6, { align: 'right' });
   doc.setFontSize(8);
   doc.setTextColor(...GREEN_DARK);
   doc.text(`Transactions Report`, 10, BANNER_H + 6);
