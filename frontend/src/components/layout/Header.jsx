@@ -46,9 +46,13 @@ export default function Header({ onMenuClick }) {
 
   return (
     <>
-      <header className="flex items-center h-14 lg:h-16 px-3 md:px-6 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
+      {/* Safe-area spacer for iPhone notch/dynamic island — fills status bar area with header bg */}
+      <header
+        className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
+        {/* Actual nav row sits below the safe-area padding */}
+        <div className="flex items-center h-14 lg:h-16 px-3 md:px-6">
         <button onClick={onMenuClick} className="lg:hidden p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
           <Menu size={22} />
         </button>
@@ -104,6 +108,7 @@ export default function Header({ onMenuClick }) {
             )}
           </div>
         </div>
+        </div> {/* end nav row */}
       </header>
 
       <Modal open={modal} onClose={() => setModal(false)} title="Change Password">
