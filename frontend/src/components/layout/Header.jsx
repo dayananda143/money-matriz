@@ -46,16 +46,22 @@ export default function Header({ onMenuClick }) {
 
   return (
     <>
-      <header className="flex items-center justify-between h-16 px-4 md:px-6 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-        <button onClick={onMenuClick} className="lg:hidden text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+      <header className="flex items-center h-14 lg:h-16 px-3 md:px-6 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        <button onClick={onMenuClick} className="lg:hidden p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
           <Menu size={22} />
         </button>
+        {/* App title centered on mobile */}
+        <div className="lg:hidden flex-1 flex items-center justify-center">
+          <span className="text-sm font-bold text-gray-900 dark:text-white">Money Matriz</span>
+        </div>
         <div className="hidden lg:flex items-center">
           <span className="text-sm text-gray-500 dark:text-gray-400">
             Welcome back, <span className="font-medium text-gray-900 dark:text-white">{user?.name}</span>
           </span>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-1 ml-auto">
           <button
             onClick={toggle}
             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 transition-colors"
@@ -68,11 +74,15 @@ export default function Header({ onMenuClick }) {
           <div className="relative" ref={dropRef}>
             <button
               onClick={() => setDropdownOpen(o => !o)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
-              <UserCircle size={20} />
-              <span className="hidden sm:block text-sm font-medium">{user?.name}</span>
-              <ChevronDown size={14} />
+              {/* Mobile: show avatar initials; desktop: show icon + name */}
+              <span className="lg:hidden w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-sm">
+                {user?.name?.[0]?.toUpperCase()}
+              </span>
+              <UserCircle size={20} className="hidden lg:block" />
+              <span className="hidden lg:block text-sm font-medium">{user?.name}</span>
+              <ChevronDown size={14} className="hidden lg:block" />
             </button>
 
             {dropdownOpen && (
