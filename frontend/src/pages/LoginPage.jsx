@@ -14,6 +14,40 @@ function FaceIdIcon({ className = 'w-5 h-5' }) {
   );
 }
 
+function FingerprintIcon({ className = 'w-5 h-5' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4" />
+      <path d="M14 13.12c0 2.38 0 6.38-1 8.88" />
+      <path d="M17.29 21.02c.12-.6.43-2.3.5-3.02" />
+      <path d="M2 12a10 10 0 0 1 18-6" />
+      <path d="M2 17c1 0 4.6-.4 5.2-1.2" />
+      <path d="M5 19c1 0 4.1-.6 4.8-1.2" />
+      <path d="M12 4a8 8 0 0 1 8 8" />
+      <path d="M12 7a5 5 0 0 1 5 5" />
+      <path d="M19.44 13c-.22 4.16-1.08 6.28-3.44 8" />
+    </svg>
+  );
+}
+
+function getPlatform() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Android/i.test(ua)) return 'android';
+  return 'other';
+}
+
+function getBiometricLabel(platform) {
+  if (platform === 'ios') return 'Face ID / Touch ID';
+  if (platform === 'android') return 'Fingerprint / Face Unlock';
+  return 'Biometric Sign-In';
+}
+
+function BiometricIcon({ platform, className = 'w-5 h-5' }) {
+  if (platform === 'android') return <FingerprintIcon className={className} />;
+  return <FaceIdIcon className={className} />;
+}
+
 function isWebAuthnAvailable() {
   return !!(window.PublicKeyCredential &&
     typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function');
@@ -22,26 +56,28 @@ function isWebAuthnAvailable() {
 function PasskeySetupBanner({ onSetup, onDismiss }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const platform = getPlatform();
+  const label = getBiometricLabel(platform);
   async function handleSetup() {
     setLoading(true); setError('');
     try { await onSetup(); onDismiss(); }
-    catch (e) { setError(e?.message ?? 'Setup failed. Make sure Face ID / Touch ID is enabled.'); setLoading(false); }
+    catch (e) { setError(e?.message ?? `Setup failed. Make sure ${label} is enabled on your device.`); setLoading(false); }
   }
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-sm p-6">
         <div className="flex flex-col items-center text-center gap-3">
           <div className="w-14 h-14 rounded-2xl bg-brand-50 dark:bg-brand-900/30 flex items-center justify-center">
-            <FaceIdIcon className="w-7 h-7 text-brand-600 dark:text-brand-400" />
+            <BiometricIcon platform={platform} className="w-7 h-7 text-brand-600 dark:text-brand-400" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-gray-900 dark:text-white">Enable Face ID / Touch ID</h3>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-white">Enable {label}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Sign in instantly next time — no password needed.</p>
           </div>
           {error && <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 w-full">{error}</p>}
           <button onClick={handleSetup} disabled={loading}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 disabled:opacity-50 transition-colors">
-            <FaceIdIcon />{loading ? 'Setting up…' : 'Set Up Face ID / Touch ID'}
+            <BiometricIcon platform={platform} />{loading ? 'Setting up…' : `Set Up ${label}`}
           </button>
           <button onClick={onDismiss} className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">Not now</button>
         </div>
@@ -63,6 +99,8 @@ export default function LoginPage() {
   const [platformAvailable, setPlatformAvailable] = useState(false);
 
   const passkeyRegistered = localStorage.getItem('mm-passkey-registered') === 'true';
+  const platform = getPlatform();
+  const biometricLabel = getBiometricLabel(platform);
 
   useEffect(() => {
     if (!isWebAuthnAvailable()) return;
@@ -78,7 +116,7 @@ export default function LoginPage() {
       await loginWithPasskey();
       navigate('/dashboard');
     } catch (err) {
-      setError(err?.message || 'Face ID / Touch ID sign-in failed. Try your password.');
+      setError(err?.message || `${biometricLabel} sign-in failed. Try your password.`);
     } finally {
       setPasskeyLoading(false);
     }
@@ -146,8 +184,8 @@ export default function LoginPage() {
                 disabled={passkeyLoading}
                 className="w-full flex items-center justify-center gap-2.5 px-4 py-3 bg-gray-900 dark:bg-gray-700 text-white rounded-xl text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
               >
-                <FaceIdIcon className="w-5 h-5" />
-                {passkeyLoading ? 'Authenticating…' : 'Sign in with Face ID / Touch ID'}
+                <BiometricIcon platform={platform} className="w-5 h-5" />
+                {passkeyLoading ? 'Authenticating…' : `Sign in with ${biometricLabel}`}
               </button>
               <div className="flex items-center gap-3 mt-5 mb-1">
                 <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
