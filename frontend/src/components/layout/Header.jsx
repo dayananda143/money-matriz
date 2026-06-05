@@ -1,25 +1,84 @@
 import { useState, useRef, useEffect } from 'react';
-import { Menu, Sun, Moon, LogOut, KeyRound, ChevronDown, UserCircle } from 'lucide-react';
+import { Menu, Sun, Moon, LogOut, KeyRound, ChevronDown, UserCircle, Bell, TrendingDown, TrendingUp, CheckCheck, Trash2 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNotifications } from '../../contexts/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api';
 import Modal from '../ui/Modal';
 
+function NotificationPanel({ onClose }) {
+  const { notifications, unreadCount, markRead, markAllRead, clearAll } = useNotifications();
+
+  return (
+    <div className="absolute right-0 mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg z-50 flex flex-col max-h-[420px]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <span className="font-semibold text-sm text-gray-900 dark:text-white">Notifications</span>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <button onClick={markAllRead} className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:underline">
+              <CheckCheck size={13} /> Mark all read
+            </button>
+          )}
+          {notifications.length > 0 && (
+            <button onClick={clearAll} className="flex items-center gap-1 text-xs text-red-500 dark:text-red-400 hover:underline">
+              <Trash2 size={12} /> Clear all
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-y-auto flex-1 divide-y divide-gray-50 dark:divide-gray-700/50">
+        {notifications.length === 0 && (
+          <p className="text-sm text-gray-400 text-center py-8">No notifications yet</p>
+        )}
+        {notifications.map(n => (
+          <button
+            key={n.id}
+            onClick={() => markRead(n.id)}
+            className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors ${!n.is_read ? 'bg-brand-50/40 dark:bg-brand-900/10' : ''}`}
+          >
+            <div className="flex items-start gap-2.5">
+              <span className={`mt-0.5 flex-shrink-0 ${n.type === 'stop_loss' ? 'text-red-500' : 'text-green-500'}`}>
+                {n.type === 'stop_loss' ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm leading-snug ${!n.is_read ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}`}>
+                  {n.message}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {new Date(n.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                </p>
+              </div>
+              {!n.is_read && <span className="w-2 h-2 rounded-full bg-brand-500 flex-shrink-0 mt-1.5" />}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Header({ onMenuClick }) {
   const { theme, toggle } = useTheme();
   const { user, logout } = useAuth();
+  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
   const dropRef = useRef(null);
+  const notifRef = useRef(null);
 
   useEffect(() => {
-    const handler = (e) => { if (dropRef.current && !dropRef.current.contains(e.target)) setDropdownOpen(false); };
+    const handler = (e) => {
+      if (dropRef.current && !dropRef.current.contains(e.target)) setDropdownOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -74,10 +133,27 @@ export default function Header({ onMenuClick }) {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
+          {/* Notification bell */}
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => { setNotifOpen(o => !o); setDropdownOpen(false); }}
+              className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 transition-colors"
+              title="Notifications"
+            >
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {notifOpen && <NotificationPanel onClose={() => setNotifOpen(false)} />}
+          </div>
+
           {/* User dropdown */}
           <div className="relative" ref={dropRef}>
             <button
-              onClick={() => setDropdownOpen(o => !o)}
+              onClick={() => { setDropdownOpen(o => !o); setNotifOpen(false); }}
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               {/* Mobile: show avatar initials; desktop: show icon + name */}

@@ -76,9 +76,12 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
         EXISTS (
           SELECT 1 FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy'
           AND (t.investment_settled = false OR t.pnl_settled = false)
-        ) AS has_active_investors
+        ) AS has_active_investors,
+        sa.stop_loss,
+        sa.target
       FROM stocks s
       LEFT JOIN users u ON u.id = s.holder_user_id
+      LEFT JOIN stock_alerts sa ON sa.stock_id = s.id AND sa.is_active = TRUE
       ORDER BY s.symbol`);
     res.json(rows);
   } catch (err) {

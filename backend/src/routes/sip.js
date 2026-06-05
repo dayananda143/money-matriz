@@ -37,6 +37,7 @@ const BASE_SELECT = `
 // ── Participants (must be before /:id routes) ──────────────────────────────
 
 // GET participants (shareholders enrolled in SIP + their plan stats)
+// Includes any shareholder who either is in sip_participants OR has SIP plans
 router.get('/participants', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
@@ -44,9 +45,11 @@ router.get('/participants', authenticate, requireRole('admin', 'super_admin'), a
         p.default_amount,
         COUNT(sp.id)::int AS total_plans,
         COALESCE(SUM(sp.amount), 0) AS total_invested
-      FROM sip_participants p
-      JOIN users u ON u.id = p.shareholder_id
+      FROM users u
+      LEFT JOIN sip_participants p ON p.shareholder_id = u.id
       LEFT JOIN sip_plans sp ON sp.shareholder_id = u.id
+      WHERE (p.shareholder_id IS NOT NULL OR sp.shareholder_id IS NOT NULL)
+        AND u.user_type = 'shareholder'
       GROUP BY u.id, u.name, u.email, u.user_type, u.is_active, p.default_amount
       ORDER BY u.name
     `);

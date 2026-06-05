@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNotifications } from '../../contexts/NotificationContext';
+
 import api from '../../api';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Settings, Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Landmark, Activity, ClipboardList, Newspaper, Tv2
+  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing
 } from 'lucide-react';
 
 const navConfig = {
@@ -27,6 +29,7 @@ const navConfig = {
   shareholder_extra: [
     { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
     { to: '/sip', icon: CalendarClock, label: 'SIP Plans' },
+    { to: '/alerts', icon: BellRing, label: 'Alerts' },
   ],
   admin_extra: [
     { to: '/admin/overview', icon: LayoutDashboard, label: 'Overview' },
@@ -38,6 +41,7 @@ const navConfig = {
     { to: '/admin/relationships', icon: Link2, label: 'Relationships' },
     { to: '/admin/brokerage-accounts', icon: Briefcase, label: 'Brokerage Accounts' },
     { to: '/sip', icon: CalendarClock, label: 'SIP Plans' },
+    { to: '/alerts', icon: BellRing, label: 'Alerts' },
     { to: '/news', icon: Tv2, label: 'News' },
   ],
   super_admin_extra: [
@@ -45,7 +49,7 @@ const navConfig = {
   ]
 };
 
-function NavItem({ to, icon: Icon, label, onClick }) {
+function NavItem({ to, icon: Icon, label, onClick, badge }) {
   return (
     <NavLink
       to={to}
@@ -60,13 +64,19 @@ function NavItem({ to, icon: Icon, label, onClick }) {
       }
     >
       <Icon size={18} />
-      <span>{label}</span>
+      <span className="flex-1">{label}</span>
+      {badge > 0 && (
+        <span className="ml-auto min-w-[20px] h-5 px-1.5 bg-orange-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   );
 }
 
 export default function Sidebar({ open, onClose }) {
   const { user } = useAuth();
+  const { pendingAlerts } = useNotifications();
   const [hasClients, setHasClients] = useState(null); // null = loading
   const [hasHoldings, setHasHoldings] = useState(null);
 
@@ -87,10 +97,13 @@ export default function Sidebar({ open, onClose }) {
   const isAdmin = user.role === 'admin' || user.role === 'super_admin';
   const isSuperAdmin = user.role === 'super_admin';
   const isShareholder = user.user_type === 'shareholder';
-  const base = (navConfig[user.user_type] || []).filter(i =>
-    i.to !== '/ideas' &&
-    (i.to !== '/demat' || hasHoldings === true)
-  );
+  const base = [
+    ...(navConfig[user.user_type] || []).filter(i =>
+      i.to !== '/ideas' &&
+      (i.to !== '/demat' || hasHoldings === true)
+    ),
+    ...((isAdmin || isShareholder) ? [{ to: '/stock-alerts', icon: BellRing, label: 'Stock Alert Notifications', alertBadge: true }] : []),
+  ];
   const adminItems = (isAdmin ? navConfig.admin_extra : isShareholder ? navConfig.shareholder_extra : [])
     .filter(i => (i.to !== '/company' && i.to !== '/admin/overview') || isSuperAdmin);
   const superItems = user.role === 'super_admin' ? navConfig.super_admin_extra : [];
@@ -126,13 +139,15 @@ export default function Sidebar({ open, onClose }) {
           {base.length > 0 && (
             <>
               <p className="px-3 pt-2 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Main</p>
-              {base.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
+              {base.map(item => <NavItem key={item.to} {...item} onClick={onClose} badge={item.alertBadge ? pendingAlerts.length : 0} />)}
             </>
           )}
           {adminItems.length > 0 && (
             <>
               <p className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Management</p>
-              {adminItems.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
+              {adminItems.map(item => (
+                <NavItem key={item.to} {...item} onClick={onClose} badge={item.alertBadge ? pendingAlerts.length : 0} />
+              ))}
             </>
           )}
           {superItems.length > 0 && (

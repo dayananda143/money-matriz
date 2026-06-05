@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import Layout from './components/layout/Layout';
 import LoginPage from './pages/LoginPage';
 import LoadingSpinner from './components/ui/LoadingSpinner';
@@ -47,6 +48,8 @@ import SettingsPage from './pages/admin/SettingsPage';
 import BrokerageAccountsPage from './pages/admin/BrokerageAccountsPage';
 import SIPPage, { SIPTilesPage } from './pages/admin/SIPPage';
 import AllClientsPage from './pages/admin/AllClientsPage';
+import AlertsPage from './pages/AlertsPage';
+import StockAlertsPage from './pages/StockAlertsPage';
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth();
@@ -116,6 +119,8 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/sip" element={<SIPTilesPage />} />}
         {(isAdmin || isShareholder) && <Route path="/sip/:shareholderId" element={<SIPPage />} />}
         {isShareholder && !isAdmin && <Route path="/sip" element={<SIPPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/alerts" element={<AlertsPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/stock-alerts" element={<StockAlertsPage />} />}
         {isAdmin && <Route path="/admin/relationships" element={<RelationshipsPage />} />}
         {isAdmin && <Route path="/admin/overview" element={<OverviewPage />} />}
         {user.role === 'super_admin' && <Route path="/admin/settings" element={<SettingsPage />} />}
@@ -131,12 +136,14 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPageWrapper />} />
-            <Route path="/*" element={<ProtectedRoutes />} />
-          </Routes>
-        </BrowserRouter>
+        <NotificationProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPageWrapper />} />
+              <Route path="/*" element={<ProtectedRoutes />} />
+            </Routes>
+          </BrowserRouter>
+        </NotificationProvider>
       </AuthProvider>
     </ThemeProvider>
   );

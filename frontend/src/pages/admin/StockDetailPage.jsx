@@ -1,23 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../api';
-import { HoldersModal } from './StocksPage';
+import { HoldersModal, StockEditModal } from './StocksPage';
 
 export default function StockDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [stock, setStock] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const reload = () => api.get(`/stocks/${id}`).then(r => setStock(r.data));
 
   useEffect(() => {
-    api.get(`/stocks/${id}`)
-      .then(r => setStock(r.data))
-      .catch(() => navigate('/admin/stocks', { replace: true }));
+    reload().catch(() => navigate('/admin/stocks', { replace: true }));
   }, [id]);
-
-  const handleEdit = (s) => {
-    // Navigate back to stocks page with edit intent
-    navigate('/admin/stocks');
-  };
 
   return (
     <div className="space-y-6">
@@ -25,10 +21,17 @@ export default function StockDetailPage() {
         stock={stock}
         open={true}
         onClose={() => navigate(-1)}
-        onEdit={handleEdit}
-        onReload={() => api.get(`/stocks/${id}`).then(r => setStock(r.data))}
+        onEdit={() => setEditOpen(true)}
+        onReload={reload}
         showToast={() => {}}
         fullPage={true}
+      />
+
+      <StockEditModal
+        stock={stock}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onDone={reload}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, Columns } from 'lucide-react';
+import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, Columns, BellRing } from 'lucide-react';
 import api from '../../api';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -1897,6 +1897,185 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   );
 }
 
+export function StockEditModal({ stock, open, onClose, onDone }) {
+  const [form, setForm] = useState(EMPTY);
+  const [alert, setAlert] = useState({ stop_loss: '', target: '' });
+  const [saving, setSaving] = useState(false);
+  const [fetchingPrice, setFetchingPrice] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !stock) return;
+    setForm({ symbol: stock.symbol, name: stock.name, sector: stock.sector || '', current_price: stock.current_price, is_active: stock.is_active, market_cap_category: stock.market_cap_category || '' });
+    setError('');
+    setSaving(false);
+    // Load existing alert values
+    api.get(`/stock-alerts/${stock.id}`).then(r => {
+      const a = r.data;
+      setAlert({ stop_loss: a?.stop_loss ? parseFloat(a.stop_loss).toFixed(2) : '', target: a?.target ? parseFloat(a.target).toFixed(2) : '' });
+    }).catch(() => setAlert({ stop_loss: '', target: '' }));
+  }, [open, stock]);
+
+  const fetchPrice = async () => {
+    setError(''); setFetchingPrice(true);
+    try {
+      const res = await api.post(`/stocks/${stock.id}/fetch-price`, {});
+      setForm(f => ({ ...f, current_price: res.data.price }));
+    } catch (err) { setError(err.message); } finally { setFetchingPrice(false); }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault(); setError(''); setSaving(true);
+    try {
+      await api.put(`/stocks/${stock.id}`, { ...form, current_price: parseFloat(form.current_price) });
+      if (alert.stop_loss || alert.target) {
+        await api.post('/stock-alerts', {
+          stock_id: stock.id,
+          stop_loss: alert.stop_loss ? parseFloat(alert.stop_loss) : null,
+          target: alert.target ? parseFloat(alert.target) : null,
+        });
+      } else {
+        await api.delete(`/stock-alerts/${stock.id}`).catch(() => {});
+      }
+      onDone?.();
+      onClose();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Edit Stock">
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Symbol</label>
+            <input className="input uppercase" value={form.symbol} disabled />
+          </div>
+          <div>
+            <label className="label">Current Price (₹)</label>
+            <div className="flex gap-2">
+              <input type="number" className="input" min="0" step="0.01" value={form.current_price} onChange={e => setForm(f => ({ ...f, current_price: e.target.value }))} required />
+              <button type="button" onClick={fetchPrice} disabled={fetchingPrice} title="Auto-fetch live price" className="btn-secondary px-3 flex-shrink-0">
+                {fetchingPrice ? <Loader size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Click refresh to fetch live price (NSE/BSE)</p>
+          </div>
+          <div className="col-span-2">
+            <label className="label">Company Name</label>
+            <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Sector (optional)</label>
+            <input className="input" placeholder="e.g. Technology, Finance..." value={form.sector} onChange={e => setForm(f => ({ ...f, sector: e.target.value }))} />
+          </div>
+          <div className="col-span-2">
+            <label className="label">Market Cap Category (optional)</label>
+            <select className="input" value={form.market_cap_category} onChange={e => setForm(f => ({ ...f, market_cap_category: e.target.value }))}>
+              <option value="">— Select —</option>
+              {CAP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">Price Alerts</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Stop Loss (₹)</label>
+              <input type="number" className="input" min="0.01" step="0.01" placeholder="e.g. 150.00"
+                value={alert.stop_loss} onChange={e => setAlert(a => ({ ...a, stop_loss: e.target.value }))} />
+              <p className="text-xs text-red-500 mt-1">Notify when price ≤ this</p>
+            </div>
+            <div>
+              <label className="label">Target (₹)</label>
+              <input type="number" className="input" min="0.01" step="0.01" placeholder="e.g. 250.00"
+                value={alert.target} onChange={e => setAlert(a => ({ ...a, target: e.target.value }))} />
+              <p className="text-xs text-green-500 mt-1">Notify when price ≥ this</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : 'Save'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function StockAlertModal({ stock, open, onClose }) {
+  const [form, setForm] = useState({ stop_loss: '', target: '' });
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState('');
+  const [existing, setExisting] = useState(null);
+
+  useEffect(() => {
+    if (!open || !stock) return;
+    setError('');
+    setSaving(false);
+    setRemoving(false);
+    api.get(`/stock-alerts/${stock.id}`).then(r => {
+      const a = r.data;
+      setExisting(a);
+      setForm({ stop_loss: a?.stop_loss ? parseFloat(a.stop_loss).toFixed(2) : '', target: a?.target ? parseFloat(a.target).toFixed(2) : '' });
+    }).catch(() => { setExisting(null); setForm({ stop_loss: '', target: '' }); });
+  }, [open, stock]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.stop_loss && !form.target) { setError('Enter at least stop loss or target'); return; }
+    setError(''); setSaving(true);
+    try {
+      await api.post('/stock-alerts', { stock_id: stock.id, stop_loss: form.stop_loss ? parseFloat(form.stop_loss) : null, target: form.target ? parseFloat(form.target) : null });
+      onClose();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    setRemoving(true);
+    try { await api.delete(`/stock-alerts/${stock.id}`); onClose(); }
+    catch (err) { setError(err.message); } finally { setRemoving(false); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Set Alert — ${stock?.symbol}`}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          All shareholders will receive a notification when the price crosses these levels.
+          {stock?.current_price && <span className="ml-1">Current price: <strong className="text-gray-900 dark:text-white">₹{parseFloat(stock.current_price).toFixed(2)}</strong></span>}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Stop Loss (₹)</label>
+            <input type="number" className="input" min="0.01" step="0.01" placeholder="e.g. 150.00"
+              value={form.stop_loss} onChange={e => setForm(f => ({ ...f, stop_loss: e.target.value }))} />
+            <p className="text-xs text-red-500 mt-1">Alert when price ≤ this</p>
+          </div>
+          <div>
+            <label className="label">Target (₹)</label>
+            <input type="number" className="input" min="0.01" step="0.01" placeholder="e.g. 250.00"
+              value={form.target} onChange={e => setForm(f => ({ ...f, target: e.target.value }))} />
+            <p className="text-xs text-green-500 mt-1">Alert when price ≥ this</p>
+          </div>
+        </div>
+        <div className="flex gap-3 pt-2">
+          {existing?.is_active && (
+            <button type="button" onClick={remove} disabled={removing} className="btn-danger flex-shrink-0">
+              {removing ? 'Removing…' : 'Remove Alert'}
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? 'Saving…' : 'Save Alert'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export default function StocksPage() {
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1919,12 +2098,13 @@ export default function StocksPage() {
   const [stockPage, setStockPage] = useState(1);
   const [stockSearch, setStockSearch] = useState('');
   const [stockLimit, setStockLimit] = useState(10);
-  const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'period', 'status', 'updated'];
-  const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', period: 'Period', status: 'Status', updated: 'Updated' };
+  const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'stop_loss', 'target', 'period', 'status', 'updated'];
+  const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', stop_loss: 'Stop Loss', target: 'Target', period: 'Period', status: 'Status', updated: 'Updated' };
   const [stockVisibleCols, setStockVisibleCols] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem('stocks_visible_cols') || 'null'); return s ? new Set(s) : new Set(ST_COLS); } catch { return new Set(ST_COLS); }
   });
   const [stockColMenuOpen, setStockColMenuOpen] = useState(false);
+  const [alertStock, setAlertStock] = useState(null);
   const toggleStockCol = col => setStockVisibleCols(prev => {
     const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
     localStorage.setItem('stocks_visible_cols', JSON.stringify([...next])); return next;
@@ -2123,6 +2303,8 @@ export default function StocksPage() {
               {stockVisibleCols.has('sector') && <SortThMain label="Sector" col="sector" />}
               {stockVisibleCols.has('current_price') && <SortThMain label="Current Price" col="current_price" />}
               {stockVisibleCols.has('buy_price') && <SortThMain label="Buy Price" col="common_buy_price" />}
+              {stockVisibleCols.has('stop_loss') && <Th>Stop Loss</Th>}
+              {stockVisibleCols.has('target') && <Th>Target</Th>}
               {stockVisibleCols.has('period') && <SortThMain label="Period" col="period" />}
               {stockVisibleCols.has('status') && <SortThMain label="Status" col="is_active" />}
               {stockVisibleCols.has('updated') && <SortThMain label="Updated" col="last_updated" />}
@@ -2157,6 +2339,9 @@ export default function StocksPage() {
                               <button onClick={() => { refreshPrice(s); setStockMenuId(null); }} disabled={refreshingId === s.id} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                 {refreshingId === s.id ? <Loader size={13} className="animate-spin" /> : <RefreshCw size={13} />} Refresh Price
                               </button>
+                              <button onClick={() => { setAlertStock(s); setStockMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                <BellRing size={13} /> Set Alert
+                              </button>
                               <button onClick={() => { toggleActive(s); setStockMenuId(null); }} className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 ${s.is_active ? 'text-orange-600' : 'text-green-600'}`}>
                                 {s.is_active ? 'Disable' : 'Enable'}
                               </button>
@@ -2176,6 +2361,20 @@ export default function StocksPage() {
                     </Td>}
                     {stockVisibleCols.has('current_price') && <Td className="font-medium">{fmt.currency(s.current_price)}</Td>}
                     {stockVisibleCols.has('buy_price') && <Td className="text-xs text-gray-500 whitespace-nowrap">{s.common_buy_price ? fmt.currency(s.common_buy_price) : '—'}</Td>}
+                    {stockVisibleCols.has('stop_loss') && (
+                      <Td className="whitespace-nowrap">
+                        {s.stop_loss
+                          ? <span className="text-xs font-medium text-red-600 dark:text-red-400">₹{parseFloat(s.stop_loss).toFixed(2)}</span>
+                          : <span className="text-xs text-gray-300 dark:text-gray-600">—</span>}
+                      </Td>
+                    )}
+                    {stockVisibleCols.has('target') && (
+                      <Td className="whitespace-nowrap">
+                        {s.target
+                          ? <span className="text-xs font-medium text-green-600 dark:text-green-400">₹{parseFloat(s.target).toFixed(2)}</span>
+                          : <span className="text-xs text-gray-300 dark:text-gray-600">—</span>}
+                      </Td>
+                    )}
                     {stockVisibleCols.has('period') && <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>}
                     {stockVisibleCols.has('status') && <Td><span className={(s.is_active || s.has_active_investors) ? 'badge-green' : 'badge-red'}>{(s.is_active || s.has_active_investors) ? 'Active' : 'Inactive'}</span></Td>}
                     {stockVisibleCols.has('updated') && <Td className="text-gray-500 text-xs">{s.last_updated ? fmt.datetime(s.last_updated) : '—'}</Td>}
@@ -2277,6 +2476,8 @@ export default function StocksPage() {
           </div>
         </div>
       </Modal>
+
+      <StockAlertModal stock={alertStock} open={!!alertStock} onClose={() => setAlertStock(null)} />
 
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-xl shadow-lg text-sm font-medium">
