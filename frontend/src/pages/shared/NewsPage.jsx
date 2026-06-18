@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download, ClipboardCopy, Upload, Check, FileJson, FileSpreadsheet } from 'lucide-react';
+import { Tv2, Sparkles, Link2, AlertCircle, ExternalLink, Download, ClipboardCopy, Upload, Check, FileJson, FileSpreadsheet, History, X } from 'lucide-react';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import jsPDF from 'jspdf';
@@ -153,6 +153,28 @@ Rules:
 Transcript:
 [PASTE YOUR TRANSCRIPT HERE]`;
 
+const HISTORY_KEY = 'news-json-history';
+const HISTORY_MAX = 5;
+
+function loadHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveToHistory(entry) {
+  const history = [entry, ...loadHistory()].slice(0, HISTORY_MAX);
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // localStorage full or unavailable — history is best-effort
+  }
+  return history;
+}
+
 export default function NewsPage() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -167,6 +189,38 @@ export default function NewsPage() {
   const [copied, setCopied] = useState(false);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptReady, setTranscriptReady] = useState(false);
+  const [history, setHistory] = useState(loadHistory);
+  const [activeHistoryId, setActiveHistoryId] = useState(null);
+
+  const addToHistory = (newsItems, source, label) => {
+    const entry = {
+      id: Date.now(),
+      savedAt: new Date().toISOString(),
+      source,
+      label,
+      items: newsItems,
+    };
+    setHistory(saveToHistory(entry));
+    setActiveHistoryId(entry.id);
+  };
+
+  const loadFromHistory = (entry) => {
+    setItems(entry.items);
+    const cats = {};
+    entry.items.forEach((item, i) => { cats[i] = item.category || 'Other'; });
+    setCategories(cats);
+    setVideoId('');
+    setCoverage(0);
+    setError('');
+    setActiveHistoryId(entry.id);
+  };
+
+  const removeFromHistory = (id) => {
+    const next = history.filter(h => h.id !== id);
+    setHistory(next);
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch {}
+    if (activeHistoryId === id) setActiveHistoryId(null);
+  };
 
   const generate = async () => {
     if (!url.trim()) return;
@@ -185,6 +239,9 @@ export default function NewsPage() {
       setCategories(cats);
       setVideoId(res.data.videoId || '');
       setCoverage(res.data.coveragePct || 0);
+      if (fetched.length > 0) {
+        addToHistory(fetched, 'analyze', res.data.videoId ? `Video ${res.data.videoId}` : 'YouTube analysis');
+      }
     } catch (e) {
       setError(e.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
@@ -234,6 +291,10 @@ export default function NewsPage() {
       setCoverage(0);
       setShowImport(false);
       setJsonText('');
+      if (parsed.length > 0) {
+        const firstCompany = parsed.find(it => it?.company)?.company;
+        addToHistory(parsed, 'import', firstCompany ? `${firstCompany} +${parsed.length - 1} more` : 'Pasted JSON');
+      }
     } catch {
       setJsonError('Invalid JSON — check for syntax errors and try again.');
     }
@@ -378,6 +439,52 @@ export default function NewsPage() {
           </div>
         )}
       </div>
+
+      {/* Recent JSON history */}
+      {history.length > 0 && (
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+            <History size={14} className="text-gray-400" />
+            <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Recent imports</span>
+            <span className="text-xs text-gray-400">— last {HISTORY_MAX}, click to reload</span>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-800">
+            {history.map(entry => (
+              <div
+                key={entry.id}
+                className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${
+                  activeHistoryId === entry.id
+                    ? 'bg-brand-50 dark:bg-brand-900/20'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                }`}
+                onClick={() => loadFromHistory(entry)}
+              >
+                <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                  entry.source === 'analyze'
+                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                }`}>
+                  {entry.source === 'analyze' ? 'Analyzed' : 'Pasted'}
+                </span>
+                <span className="flex-1 text-xs font-medium text-gray-900 dark:text-white truncate">
+                  {entry.label}
+                </span>
+                <span className="shrink-0 text-xs text-gray-400">{entry.items.length} items</span>
+                <span className="shrink-0 text-xs text-gray-400 whitespace-nowrap">
+                  {new Date(entry.savedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); removeFromHistory(entry.id); }}
+                  className="shrink-0 p-1 text-gray-300 hover:text-red-500 dark:text-gray-600 dark:hover:text-red-400 transition-colors"
+                  title="Remove from history"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (

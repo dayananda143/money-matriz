@@ -617,6 +617,139 @@ function StockHolderModal({ stock, open, onClose, onDone }) {
   );
 }
 
+function EditBuyAllModal({ stock, buyTxns, open, onClose, onDone }) {
+  const [form, setForm] = useState({ price: '', executed_at: '' });
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitRatio, setSplitRatio] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !stock) return;
+    setError('');
+    setSplitEnabled(false);
+    setSplitRatio('');
+    if (buyTxns.length > 0) {
+      const first = buyTxns[0];
+      const d = new Date(first.first_buy_date);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      setForm({ price: parseFloat(first.avg_buy_price).toFixed(2), executed_at: dateStr });
+    } else {
+      setForm({ price: '', executed_at: '' });
+    }
+  }, [open, stock, buyTxns]);
+
+  const ratio = splitEnabled ? (parseFloat(splitRatio) || 0) : 1;
+  const effectivePrice = ratio > 0 && form.price ? parseFloat(form.price) / ratio : null;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (splitEnabled && (!splitRatio || ratio <= 1)) {
+      setError('Enter a split ratio greater than 1'); return;
+    }
+    setError(''); setSaving(true);
+    try {
+      const price = splitEnabled ? parseFloat((parseFloat(form.price) / ratio).toFixed(4)) : parseFloat(form.price);
+      await Promise.all(buyTxns.map(t =>
+        api.put(`/stocks/${stock.id}/transactions/${t.txn_id}`, {
+          quantity: splitEnabled ? parseFloat((parseFloat(t.quantity) * ratio).toFixed(2)) : parseFloat(t.quantity),
+          price,
+          notes: t.notes,
+          executed_at: form.executed_at || null,
+          brokerage: 0,
+        })
+      ));
+      onDone();
+      onClose();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  const totalShares = buyTxns.reduce((s, t) => s + parseFloat(t.quantity), 0);
+  const totalSplitShares = splitEnabled && ratio > 1 ? totalShares * ratio : totalShares;
+  const displayPrice = splitEnabled && effectivePrice ? effectivePrice : (parseFloat(form.price) || 0);
+  const totalValue = displayPrice ? totalSplitShares * displayPrice : 0;
+
+  return (
+    <Modal open={open} onClose={onClose} title={stock ? `Edit Buy — ${stock.symbol}` : ''}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
+        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300 space-y-1">
+          <div className="font-medium">Editing existing buy transactions</div>
+          <div>Investors: <strong>{buyTxns.length}</strong> · Total shares: <strong>{fmt.number(splitEnabled && ratio > 1 ? totalSplitShares : totalShares, 2)}</strong></div>
+          {totalValue > 0 && <div>Total invested value: <strong>{fmt.currency(totalValue)}</strong></div>}
+        </div>
+        <div className="divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-xs">
+          {buyTxns.map(t => {
+            const newQty = splitEnabled && ratio > 1 ? parseFloat(t.quantity) * ratio : parseFloat(t.quantity);
+            const newPrice = splitEnabled && effectivePrice ? effectivePrice : parseFloat(t.avg_buy_price);
+            return (
+              <div key={t.txn_id} className="flex justify-between items-center px-3 py-2 text-gray-600 dark:text-gray-400">
+                <span className="font-medium text-gray-800 dark:text-gray-200">{t.name}</span>
+                <span>
+                  {splitEnabled && ratio > 1 ? (
+                    <>
+                      <span className="line-through text-gray-400">{fmt.number(t.quantity, 2)}</span>
+                      <span className="text-green-600 dark:text-green-400 ml-1">→ {fmt.number(newQty, 2)} shares</span>
+                      <span className="ml-2 text-gray-400">@ {fmt.currency(newPrice)}</span>
+                    </>
+                  ) : (
+                    <>{fmt.number(t.quantity, 2)} shares · ₹{parseFloat(t.avg_buy_price).toFixed(2)}</>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Buy Price (₹)</label>
+            <input type="number" className="input" min="0.01" step="0.01" value={form.price}
+              onChange={e => setForm(f => ({ ...f, price: e.target.value }))} required />
+          </div>
+          <div>
+            <label className="label">Buy Date</label>
+            <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
+              onChange={e => setForm(f => ({ ...f, executed_at: e.target.value }))} required />
+          </div>
+        </div>
+
+        {/* Split */}
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={splitEnabled} onChange={e => { setSplitEnabled(e.target.checked); if (!e.target.checked) setSplitRatio(''); }}
+              className="w-4 h-4 rounded accent-brand-600" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Split</span>
+          </label>
+          {splitEnabled && (
+            <div className="flex items-center gap-2 pl-6">
+              <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">1 :</span>
+              <input
+                type="number" min="2" step="1" placeholder="e.g. 10"
+                value={splitRatio}
+                onChange={e => setSplitRatio(e.target.value)}
+                className="input w-24 py-1 text-sm"
+                autoFocus
+              />
+              {effectivePrice && ratio > 1 && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  → price ÷ {ratio} = <strong className="text-gray-800 dark:text-gray-200">{fmt.currency(effectivePrice)}</strong>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button type="submit" disabled={saving || buyTxns.length === 0} className="btn-primary flex-1">
+            {saving ? 'Saving...' : `Update ${buyTxns.length} buy transaction${buyTxns.length !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 const holdingPeriod = (startStr, endStr) => {
   if (!startStr) return '—';
   const end = endStr ? new Date(endStr) : new Date();
@@ -636,6 +769,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [addOpen, setAddOpen] = useState(false);
   const [settleSummaryOpen, setSettleSummaryOpen] = useState(false);
   const [sellAllOpen, setSellAllOpen] = useState(false);
+  const [editBuyOpen, setEditBuyOpen] = useState(false);
   const [editHolder, setEditHolder] = useState(null);
   const [sellHolder, setSellHolder] = useState(null);
   const [deleteHolder, setDeleteHolder] = useState(null);
@@ -1111,6 +1245,11 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
               <button onClick={() => setSellAllOpen(true)} className="text-xs px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded flex items-center gap-1">
                 <TrendingDown size={12} /> {allExited ? 'Edit Sell' : 'Sell All Shares'}
               </button>
+              {activeInvRows && activeInvRows.length > 0 && (
+                <button onClick={() => setEditBuyOpen(true)} className="text-xs px-2 py-0.5 bg-blue-500 hover:bg-blue-600 text-white rounded flex items-center gap-1">
+                  <Pencil size={12} /> Edit Buy
+                </button>
+              )}
               <button onClick={() => setAddOpen(true)} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded flex items-center gap-1">
                 <ShoppingCart size={12} /> Add Investment
               </button>
@@ -1365,6 +1504,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const subModals = (
     <>
       <AddInvestmentModal stock={stock} open={addOpen} onClose={() => setAddOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
+      <EditBuyAllModal stock={stock} buyTxns={activeInvRows || []} open={editBuyOpen} onClose={() => setEditBuyOpen(false)} onDone={loadHolders} />
       <SellAllModal stock={stock} holders={activeGroupId
         ? groupHolders.map(h => {
             const currentQty = parseFloat(h.quantity);

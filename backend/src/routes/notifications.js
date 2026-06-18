@@ -69,12 +69,19 @@ router.put('/read-all', async (req, res) => {
 });
 
 // PUT /api/notifications/:id/acknowledge — acknowledge a single notification
+// Acknowledging a stop_loss/target notification also turns off the underlying
+// stock alert, so it stops re-firing for that stock until re-armed on the Alerts page.
 router.put('/:id/acknowledge', async (req, res) => {
   try {
-    await query(
-      `UPDATE notifications SET is_acknowledged = TRUE, is_read = TRUE WHERE id = $1 AND user_id = $2`,
+    const { rows } = await query(
+      `UPDATE notifications SET is_acknowledged = TRUE, is_read = TRUE
+       WHERE id = $1 AND user_id = $2 RETURNING alert_id`,
       [req.params.id, req.user.id]
     );
+    const alertId = rows[0]?.alert_id;
+    if (alertId) {
+      await query(`UPDATE stock_alerts SET is_active = FALSE, updated_at = NOW() WHERE id = $1`, [alertId]);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -85,10 +92,15 @@ router.put('/:id/acknowledge', async (req, res) => {
 // PUT /api/notifications/acknowledge-all — acknowledge all notifications
 router.put('/acknowledge-all', async (req, res) => {
   try {
-    await query(
-      `UPDATE notifications SET is_acknowledged = TRUE, is_read = TRUE WHERE user_id = $1 AND is_acknowledged = FALSE`,
+    const { rows } = await query(
+      `UPDATE notifications SET is_acknowledged = TRUE, is_read = TRUE
+       WHERE user_id = $1 AND is_acknowledged = FALSE RETURNING alert_id`,
       [req.user.id]
     );
+    const alertIds = [...new Set(rows.map(r => r.alert_id).filter(Boolean))];
+    if (alertIds.length) {
+      await query(`UPDATE stock_alerts SET is_active = FALSE, updated_at = NOW() WHERE id = ANY($1)`, [alertIds]);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error(err);

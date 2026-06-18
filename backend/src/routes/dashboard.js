@@ -148,30 +148,70 @@ router.get('/all-users', authenticate, requireRole('admin', 'super_admin'), asyn
   }
 });
 
-// All active holdings across all users (admin/super_admin)
-router.get('/all-holdings', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+// All holdings across all users — active (still held) and exited (fully sold), aggregated per stock
+router.get('/all-holdings', authenticate, async (req, res) => {
   try {
-    const { rows } = await query(`
-      SELECT
-        s.symbol,
-        s.name                                         AS stock_name,
-        s.sector,
-        s.market_cap_category,
-        s.current_price,
-        SUM(h.quantity)                                AS quantity,
-        CASE WHEN SUM(h.quantity) > 0
-             THEN ROUND((SUM(h.quantity * h.avg_buy_price) / SUM(h.quantity))::numeric, 2)
-             ELSE 0 END                                AS avg_buy_price,
-        SUM(h.quantity * s.current_price)              AS current_value,
-        SUM(h.quantity * s.current_price)
-          - SUM(h.quantity * h.avg_buy_price)          AS unrealized_pnl
-      FROM holdings h
-      JOIN stocks s ON s.id = h.stock_id
-      WHERE h.quantity > 0
-      GROUP BY s.id, s.symbol, s.name, s.sector, s.market_cap_category, s.current_price
-      ORDER BY current_value DESC
-    `);
-    res.json(rows);
+    const [activeRes, exitedRes] = await Promise.all([
+      query(`
+        SELECT
+          s.symbol,
+          s.name                                         AS stock_name,
+          s.sector,
+          s.market_cap_category,
+          s.current_price,
+          SUM(h.quantity)                                AS quantity,
+          CASE WHEN SUM(h.quantity) > 0
+               THEN ROUND((SUM(h.quantity * h.avg_buy_price) / SUM(h.quantity))::numeric, 2)
+               ELSE 0 END                                AS avg_buy_price,
+          SUM(h.quantity * s.current_price)              AS current_value,
+          SUM(h.quantity * s.current_price)
+            - SUM(h.quantity * h.avg_buy_price)          AS unrealized_pnl
+        FROM holdings h
+        JOIN stocks s ON s.id = h.stock_id
+        WHERE h.quantity > 0
+        GROUP BY s.id, s.symbol, s.name, s.sector, s.market_cap_category, s.current_price
+        ORDER BY current_value DESC
+      `),
+      query(`
+        WITH exited_holdings AS (
+          SELECT
+            h.stock_id,
+            COALESCE((SELECT SUM(t.quantity) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy'), 0) AS total_bought_quantity,
+            COALESCE((SELECT SUM(t.total) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy'), 0) AS total_buy_amount,
+            COALESCE((SELECT SUM(t.total) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell'), 0) AS total_sell_amount,
+            COALESCE((SELECT SUM(CASE WHEN t.type = 'sell' THEN t.total ELSE -t.total END) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id), 0) AS realized_pnl,
+            (SELECT MIN(t.executed_at) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'buy') AS first_buy_date,
+            (SELECT MAX(t.executed_at) FROM transactions t
+              WHERE t.user_id = h.user_id AND t.stock_id = h.stock_id AND t.type = 'sell') AS last_sell_date
+          FROM holdings h
+          WHERE ROUND(h.quantity::numeric, 2) <= 0
+        )
+        SELECT
+          s.symbol,
+          s.name                                         AS stock_name,
+          s.sector,
+          s.market_cap_category,
+          SUM(e.total_bought_quantity)                   AS total_bought_quantity,
+          CASE WHEN SUM(e.total_bought_quantity) > 0
+               THEN ROUND((SUM(e.total_buy_amount) / SUM(e.total_bought_quantity))::numeric, 2)
+               ELSE 0 END                                AS avg_buy_price,
+          SUM(e.total_buy_amount)                        AS total_buy_amount,
+          SUM(e.total_sell_amount)                       AS total_sell_amount,
+          SUM(e.realized_pnl)                            AS realized_pnl,
+          MIN(e.first_buy_date)                          AS first_buy_date,
+          MAX(e.last_sell_date)                          AS last_sell_date
+        FROM exited_holdings e
+        JOIN stocks s ON s.id = e.stock_id
+        GROUP BY s.id, s.symbol, s.name, s.sector, s.market_cap_category
+        ORDER BY last_sell_date DESC
+      `),
+    ]);
+    res.json({ active: activeRes.rows, exited: exitedRes.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

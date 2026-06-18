@@ -670,6 +670,9 @@ const ACTIVE_COLS  = ['name','sector','buy_date','qty','avg_buy','current_price'
 const EXITED_COLS  = ['name','sector','shares','avg_buy','amt_invested','buy_date','sell_date','realized_pnl','pnl_pct'];
 const COL_LABEL    = { name:'Name', sector:'Sector', buy_date:'Buy Date', qty:'Qty', avg_buy:'Avg Buy', current_price:'Current Price', current_value:'Current Value', pnl:'P&L', pnl_pct:'P&L %', shares:'Shares', amt_invested:'Amt Invested', sell_date:'Sell Date', realized_pnl:'Realized P&L' };
 
+const ALL_ACTIVE_COLS = ['name','sector','qty','avg_buy','current_price','current_value','pnl_pct'];
+const ALL_EXITED_COLS = ['name','sector','shares','avg_buy','amt_invested','buy_date','sell_date','realized_pnl','pnl_pct'];
+
 function HoldingsDetail({ userId, userName, hideExport = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1210,25 +1213,115 @@ const USER_TYPES = [
   { label: 'Client',      filter: u => u.user_type === 'client' },
 ];
 
+function allHoldingSortValue(r, col, tab) {
+  if (tab === 'active') {
+    switch (col) {
+      case 'symbol': return r.symbol;
+      case 'name': return r.stock_name || '';
+      case 'sector': return r.sector || '';
+      case 'qty': return parseFloat(r.quantity || 0);
+      case 'avg_buy': return parseFloat(r.avg_buy_price || 0);
+      case 'current_price': return parseFloat(r.current_price || 0);
+      case 'current_value': return parseFloat(r.current_value || 0);
+      case 'pnl_pct': {
+        const invested = parseFloat(r.quantity || 0) * parseFloat(r.avg_buy_price || 0);
+        return invested > 0 ? parseFloat(r.unrealized_pnl || 0) / invested * 100 : 0;
+      }
+      default: return 0;
+    }
+  }
+  switch (col) {
+    case 'symbol': return r.symbol;
+    case 'name': return r.stock_name || '';
+    case 'sector': return r.sector || '';
+    case 'shares': return parseFloat(r.total_bought_quantity || 0);
+    case 'avg_buy': return parseFloat(r.avg_buy_price || 0);
+    case 'amt_invested': return parseFloat(r.total_buy_amount || 0);
+    case 'buy_date': return r.first_buy_date ? new Date(r.first_buy_date).getTime() : 0;
+    case 'sell_date': return r.last_sell_date ? new Date(r.last_sell_date).getTime() : 0;
+    case 'realized_pnl': return parseFloat(r.realized_pnl || 0);
+    case 'pnl_pct': {
+      const buyAmt = parseFloat(r.total_buy_amount || 0);
+      return buyAmt > 0 ? parseFloat(r.realized_pnl || 0) / buyAmt * 100 : 0;
+    }
+    default: return 0;
+  }
+}
+
 function AllHoldingsView() {
-  const [rows, setRows] = useState([]);
+  const [data, setData] = useState({ active: [], exited: [] });
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('active');
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState({ key: 'current_value', dir: 'desc' });
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('all_holdings_visible_cols') || '{}');
+      return {
+        active: saved.active ? new Set(saved.active) : new Set(ALL_ACTIVE_COLS),
+        exited: saved.exited ? new Set(saved.exited) : new Set(ALL_EXITED_COLS),
+      };
+    } catch {
+      return { active: new Set(ALL_ACTIVE_COLS), exited: new Set(ALL_EXITED_COLS) };
+    }
+  });
 
   useEffect(() => {
     api.get('/dashboard/all-holdings')
-      .then(r => setRows(r.data))
+      .then(r => setData(r.data))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
+  const active = data.active || [];
+  const exited = data.exited || [];
+  const cols = tab === 'active' ? ALL_ACTIVE_COLS : ALL_EXITED_COLS;
+  const visible = visibleCols[tab];
+  const colCount = visible.size + 1; // +1 for symbol, always shown
+
+  const toggleCol = (col) => {
+    setVisibleCols(prev => {
+      const next = new Set(prev[tab]);
+      next.has(col) ? next.delete(col) : next.add(col);
+      const updated = { ...prev, [tab]: next };
+      localStorage.setItem('all_holdings_visible_cols', JSON.stringify({
+        active: [...updated.active],
+        exited: [...updated.exited],
+      }));
+      return updated;
+    });
+  };
+
+  const switchTab = (t) => {
+    setTab(t);
+    setPage(1);
+    setSort({ key: t === 'active' ? 'current_value' : 'sell_date', dir: 'desc' });
+  };
+
+  const handleSort = (col) => {
+    setSort(s => ({ key: col, dir: s.key === col && s.dir === 'desc' ? 'asc' : 'desc' }));
+    setPage(1);
+  };
+
+  const rows = tab === 'active' ? active : exited;
   const filtered = rows.filter(r =>
     !search || r.symbol.toLowerCase().includes(search.toLowerCase()) || (r.stock_name || '').toLowerCase().includes(search.toLowerCase())
   );
+  const sorted = [...filtered].sort((a, b) => {
+    const av = allHoldingSortValue(a, sort.key, tab);
+    const bv = allHoldingSortValue(b, sort.key, tab);
+    if (typeof av === 'string') return sort.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sort.dir === 'asc' ? av - bv : bv - av;
+  });
+  const totalPages = Math.max(1, Math.ceil(sorted.length / limit));
+  const paged = sorted.slice((page - 1) * limit, page * limit);
 
-  const totalValue    = rows.reduce((s, r) => s + parseFloat(r.current_value || 0), 0);
-  const totalInvested = rows.reduce((s, r) => s + parseFloat(r.quantity || 0) * parseFloat(r.avg_buy_price || 0), 0);
-  const totalPnl      = rows.reduce((s, r) => s + parseFloat(r.unrealized_pnl || 0), 0);
+  const totalValue    = active.reduce((s, r) => s + parseFloat(r.current_value || 0), 0);
+  const totalInvested = active.reduce((s, r) => s + parseFloat(r.quantity || 0) * parseFloat(r.avg_buy_price || 0), 0);
+  const totalPnl      = active.reduce((s, r) => s + parseFloat(r.unrealized_pnl || 0), 0);
   const totalPnlPct   = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
 
   if (loading) return <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" /></div>;
@@ -1238,7 +1331,7 @@ function AllHoldingsView() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Stocks',    value: rows.length, isNum: false },
+          { label: 'Total Stocks',    value: active.length, isNum: false },
           { label: 'Total Invested',  value: fmt.compact(totalInvested), isNum: false },
           { label: 'Portfolio Value', value: fmt.compact(totalValue), isNum: false },
           { label: 'Unrealized P/L',  value: `${totalPnlPct >= 0 ? '+' : ''}${totalPnlPct.toFixed(2)}%`, isNum: true, pnl: totalPnlPct },
@@ -1250,55 +1343,160 @@ function AllHoldingsView() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-xs">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search symbol or name…"
-          className="input pl-8 text-sm w-full"
-        />
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <AllocationChart holdings={active} cash={0} />
+        <SectorChart holdings={active} />
+        <MarketCapChart holdings={active} />
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-                {['Symbol', 'Name', 'Sector', 'Qty', 'Avg Buy', 'Current Price', 'Value', 'P/L'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-              {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">No holdings found</td></tr>
+      <div className="card">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 flex-wrap gap-2">
+          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+            <button onClick={() => switchTab('active')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'active' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+              Active <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400">{active.length}</span>
+            </button>
+            <button onClick={() => switchTab('exited')}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'exited' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+              Exited <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400">{exited.length}</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search symbol or name…"
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
+              />
+            </div>
+            <div className="relative">
+              <button onClick={() => setColMenuOpen(o => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{visible.size}</span>
+              </button>
+              {colMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                  {cols.map(col => (
+                    <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                      <input type="checkbox" checked={visible.has(col)} onChange={() => toggleCol(col)}
+                        className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                      {COL_LABEL[col]}
+                    </label>
+                  ))}
+                </div>
               )}
-              {filtered.map(r => {
-                const pnl = parseFloat(r.unrealized_pnl || 0);
+            </div>
+            <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {PAGE_SIZES.map(n => (
+                <button key={n} onClick={() => { setLimit(n); setPage(1); }}
+                  className={`px-2.5 py-1 transition-colors ${limit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {tab === 'active' ? (
+          <Table>
+            <thead><tr>
+              <SortTh label="Symbol" col="symbol" sort={sort} onSort={handleSort} />
+              {visible.has('name') && <Th>Name</Th>}
+              {visible.has('sector') && <Th>Sector</Th>}
+              {visible.has('qty') && <SortTh label="Qty" col="qty" sort={sort} onSort={handleSort} />}
+              {visible.has('avg_buy') && <SortTh label="Avg Buy" col="avg_buy" sort={sort} onSort={handleSort} />}
+              {visible.has('current_price') && <SortTh label="Current Price" col="current_price" sort={sort} onSort={handleSort} />}
+              {visible.has('current_value') && <SortTh label="Current Value" col="current_value" sort={sort} onSort={handleSort} />}
+              {visible.has('pnl_pct') && <SortTh label="P&L %" col="pnl_pct" sort={sort} onSort={handleSort} />}
+            </tr></thead>
+            <tbody>
+              {!paged.length && <EmptyRow cols={colCount} message="No active holdings" />}
+              {paged.map(r => {
                 const invested = parseFloat(r.quantity) * parseFloat(r.avg_buy_price);
-                const pnlPct = invested > 0 ? (pnl / invested) * 100 : 0;
-                const pos = pnlPct >= 0;
+                const pnlPct = invested > 0 ? (parseFloat(r.unrealized_pnl || 0) / invested) * 100 : 0;
                 return (
-                  <tr key={r.symbol} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="px-4 py-3 font-mono font-semibold text-brand-600 dark:text-brand-400">{r.symbol}</td>
-                    <td className="px-4 py-3 text-gray-900 dark:text-white">{r.stock_name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{r.sector || '—'}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">{parseFloat(r.quantity).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">₹{parseFloat(r.avg_buy_price).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-gray-700 dark:text-gray-300">₹{parseFloat(r.current_price).toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-medium text-gray-900 dark:text-white">{fmt.compact(r.current_value)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${pos ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
-                      {pos ? '+' : ''}{pnlPct.toFixed(2)}%
-                    </td>
+                  <tr key={r.symbol} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <Td><span className="font-bold text-brand-600 dark:text-brand-400">{r.symbol}</span></Td>
+                    {visible.has('name') && <Td>{r.stock_name || '—'}</Td>}
+                    {visible.has('sector') && <Td><span className="badge-blue">{r.sector || '—'}</span>{r.market_cap_category && <span className="badge-purple ml-1">{r.market_cap_category}</span>}</Td>}
+                    {visible.has('qty') && <Td>{fmt.number(r.quantity, 2)}</Td>}
+                    {visible.has('avg_buy') && <Td>{fmt.currency(r.avg_buy_price)}</Td>}
+                    {visible.has('current_price') && <Td>{fmt.currency(r.current_price)}</Td>}
+                    {visible.has('current_value') && <Td className="font-medium">{fmt.currency(r.current_value)}</Td>}
+                    {visible.has('pnl_pct') && <Td><span className={pnlColor(pnlPct)}>{pnlSign(pnlPct)}{fmt.percent(Math.abs(pnlPct))}</span></Td>}
                   </tr>
                 );
               })}
             </tbody>
-          </table>
-        </div>
+          </Table>
+        ) : (
+          <Table>
+            <thead><tr>
+              <SortTh label="Symbol" col="symbol" sort={sort} onSort={handleSort} />
+              {visible.has('name') && <Th>Name</Th>}
+              {visible.has('sector') && <Th>Sector</Th>}
+              {visible.has('shares') && <SortTh label="Shares" col="shares" sort={sort} onSort={handleSort} />}
+              {visible.has('avg_buy') && <SortTh label="Avg Buy" col="avg_buy" sort={sort} onSort={handleSort} />}
+              {visible.has('amt_invested') && <SortTh label="Amt Invested" col="amt_invested" sort={sort} onSort={handleSort} />}
+              {visible.has('buy_date') && <SortTh label="Buy Date" col="buy_date" sort={sort} onSort={handleSort} />}
+              {visible.has('sell_date') && <SortTh label="Sell Date" col="sell_date" sort={sort} onSort={handleSort} />}
+              {visible.has('realized_pnl') && <SortTh label="Realized P&L" col="realized_pnl" sort={sort} onSort={handleSort} />}
+              {visible.has('pnl_pct') && <SortTh label="P&L %" col="pnl_pct" sort={sort} onSort={handleSort} />}
+            </tr></thead>
+            <tbody>
+              {!paged.length && <EmptyRow cols={colCount} message="No exited positions" />}
+              {paged.map(r => {
+                const buyAmt = parseFloat(r.total_buy_amount || 0);
+                const realizedPnl = parseFloat(r.realized_pnl || 0);
+                const pct = buyAmt > 0 ? (realizedPnl / buyAmt * 100) : 0;
+                return (
+                  <tr key={r.symbol} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <Td><span className="font-bold text-gray-500 dark:text-gray-400">{r.symbol}</span></Td>
+                    {visible.has('name') && <Td>{r.stock_name || '—'}</Td>}
+                    {visible.has('sector') && <Td><span className="badge-blue">{r.sector || '—'}</span>{r.market_cap_category && <span className="badge-purple ml-1">{r.market_cap_category}</span>}</Td>}
+                    {visible.has('shares') && <Td>{fmt.number(r.total_bought_quantity, 2)}</Td>}
+                    {visible.has('avg_buy') && <Td>{fmt.currency(r.avg_buy_price)}</Td>}
+                    {visible.has('amt_invested') && <Td>{fmt.currency(r.total_buy_amount)}</Td>}
+                    {visible.has('buy_date') && <Td className="text-xs text-gray-500">{r.first_buy_date ? fmt.date(r.first_buy_date) : '—'}</Td>}
+                    {visible.has('sell_date') && <Td className="text-xs text-gray-500">{r.last_sell_date ? fmt.date(r.last_sell_date) : '—'}</Td>}
+                    {visible.has('realized_pnl') && <Td><span className={pnlColor(realizedPnl)}>{pnlSign(realizedPnl)}{fmt.currency(realizedPnl)}</span></Td>}
+                    {visible.has('pnl_pct') && <Td><span className={pnlColor(pct)}>{pnlSign(pct)}{fmt.percent(Math.abs(pct))}</span></Td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed">
+                <ChevronLeft size={14} />
+              </button>
+              {(() => {
+                const range = []; for (let i = 1; i <= totalPages; i++) if (i === 1 || i === totalPages || (i >= page - 1 && i <= page + 1)) range.push(i);
+                const out = []; let prev = null;
+                for (const p of range) { if (prev !== null && p - prev > 1) out.push('...' + p); out.push(p); prev = p; }
+                return out.map((p, i) => typeof p === 'string'
+                  ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                  : <button key={p} onClick={() => setPage(p)}
+                      className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{p}</button>
+                );
+              })()}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed">
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1381,13 +1579,31 @@ export default function PortfolioPage() {
     );
   }
 
+  return <OwnPortfolioView userName={user?.name} />;
+}
+
+function OwnPortfolioView({ userName }) {
+  const [view, setView] = useState('mine');
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Portfolio</h1>
-        <p className="text-gray-500 text-sm mt-1">Detailed holdings breakdown</p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">My Portfolio</h1>
+          <p className="text-gray-500 text-sm mt-1">{view === 'all' ? 'All stocks across all portfolios' : 'Detailed holdings breakdown'}</p>
+        </div>
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
+          <button onClick={() => setView('mine')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'mine' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+            Mine
+          </button>
+          <button onClick={() => setView('all')}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${view === 'all' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+            All
+          </button>
+        </div>
       </div>
-      <HoldingsDetail userId="me" userName={user?.name} />
+      {view === 'all' ? <AllHoldingsView /> : <HoldingsDetail userId="me" userName={userName} />}
     </div>
   );
 }
