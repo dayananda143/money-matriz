@@ -38,16 +38,17 @@ function sortHoldings(rows, sort) {
   });
 }
 
-async function exportToPDF({ userName, portfolio, month, year, include = { active: true, exited: true }, charts = {}, sort = null, takings = null }) {
+async function exportToPDF({ userName, portfolio, month, year, include = { active: true, exited: true }, charts = {}, sort = null, takings = null, fixedReturn = null, scheme = '', totalDeposited = 0 }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const monthName = MONTHS[month].slice(0, 3).toUpperCase();
+  const isExit = !!(takings || fixedReturn);
 
-  const GREEN_DARK  = takings ? [20, 30, 70]  : [22, 78, 45];
-  const GREEN_MED   = takings ? [35, 55, 115] : [34, 120, 70];
-  const GREEN_LIGHT = takings ? [222, 228, 245] : [220, 245, 230];
-  const GREEN_PALE  = takings ? [241, 244, 252] : [240, 250, 244];
+  const GREEN_DARK  = isExit ? [20, 30, 70]  : [22, 78, 45];
+  const GREEN_MED   = isExit ? [35, 55, 115] : [34, 120, 70];
+  const GREEN_LIGHT = isExit ? [222, 228, 245] : [220, 245, 230];
+  const GREEN_PALE  = isExit ? [241, 244, 252] : [240, 250, 244];
   const GOLD        = [192, 155, 60];
   const WHITE       = [255, 255, 255];
   const GRAY_DARK   = [50, 50, 50];
@@ -82,10 +83,10 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
   doc.setTextColor(...WHITE);
-  doc.text(`MONEY MATRIZ ${takings ? 'EXIT' : 'MONTHLY'} REPORT`, 111, 12);
+  doc.text(`MONEY MATRIZ ${isExit ? 'EXIT' : 'MONTHLY'} REPORT`, 111, 12);
   doc.setFontSize(11);
   doc.setTextColor(...GOLD);
-  doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, 171, 22, { align: 'center' });
+  doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, W / 2, 22, { align: 'center' });
 
   doc.setFillColor(...GREEN_PALE);
   doc.rect(0, BANNER_H + 1, W, 8, 'F');
@@ -110,11 +111,22 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
   const fmtPdf = n => `Rs. ${parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtPct = n => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 
-  const CONTENT_Y = BANNER_H + 10;
-  const panelX = 6;
-  const panelW = 64;
+  const panelW = fixedReturn ? 150 : 64;
+  const panelX = fixedReturn ? (W - panelW) / 2 : 6;
+  const FIXED_ROW_H = 20;
+  const CONTENT_Y = fixedReturn
+    ? BANNER_H + 9 + (H - 8 - (BANNER_H + 9) - FIXED_ROW_H * 5) / 2
+    : BANNER_H + 10;
 
-  const summaryRows = takings ? [
+  const schemeLabel = scheme ? scheme.split(',').map(s => s.trim().replace(/_/g, ' ')).join(', ') : '—';
+  const fixedPnl = fixedReturn ? totalDeposited * fixedReturn.pct / 100 : 0;
+  const summaryRows = fixedReturn ? [
+    ['Total Deposited', fmtPdf(totalDeposited)],
+    ['Scheme',       schemeLabel],
+    ['Interest Rate', `${fixedReturn.pct}%`],
+    ['P/L',          fmtPdf(fixedPnl)],
+    ['Final Settlement Amount', fmtPdf(totalDeposited + fixedPnl)],
+  ] : takings ? [
     ['SIP Net Invested', fmtPdf(portfolio?.sip_net_invested)],
     ['Portfolio Value',  fmtPdf(activeValue)],
     ['P/L',              `${fmtPct(realizedPct)} (${fmtPdf(realizedPnl)})`],
@@ -136,11 +148,18 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
     head: [],
     body: summaryRows,
     theme: 'plain',
-    styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', lineColor: [210, 230, 215], lineWidth: 0.3 },
-    columnStyles: {
-      0: { fillColor: GREEN_DARK, textColor: WHITE, fontStyle: 'bold', cellWidth: 30 },
-      1: { fillColor: GREEN_LIGHT, textColor: GRAY_DARK, fontStyle: 'bold', cellWidth: 34, halign: 'right' },
-    },
+    styles: fixedReturn
+      ? { fontSize: 13, cellPadding: 6, overflow: 'linebreak', lineColor: [210, 230, 215], lineWidth: 0.3 }
+      : { fontSize: 8, cellPadding: 3, overflow: 'linebreak', lineColor: [210, 230, 215], lineWidth: 0.3 },
+    columnStyles: fixedReturn
+      ? {
+          0: { fillColor: GREEN_DARK, textColor: WHITE, fontStyle: 'bold', cellWidth: 65 },
+          1: { fillColor: GREEN_LIGHT, textColor: GRAY_DARK, fontStyle: 'bold', cellWidth: 85, halign: 'right' },
+        }
+      : {
+          0: { fillColor: GREEN_DARK, textColor: WHITE, fontStyle: 'bold', cellWidth: 30 },
+          1: { fillColor: GREEN_LIGHT, textColor: GRAY_DARK, fontStyle: 'bold', cellWidth: 34, halign: 'right' },
+        },
     didParseCell: (data) => {
       const label = data.row.raw?.[0];
       if (data.column.index === 1 && (label === 'Unrealized P/L' || label === 'Realized P/L' || label === 'P/L')
@@ -158,60 +177,62 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
   doc.setFillColor(...GREEN_MED);
   doc.rect(panelX, CONTENT_Y, 1.5, sumEndY - CONTENT_Y, 'F');
 
-  const tableX = panelX + panelW + 4;
-  const tableW = W - tableX - 6;
-  const allRows = sortHoldings([
-    ...(include.active ? activeHoldings : []),
-    ...(include.exited ? exitedHoldings : []),
-  ], sort);
+  if (!fixedReturn) {
+    const tableX = panelX + panelW + 4;
+    const tableW = W - tableX - 6;
+    const allRows = sortHoldings([
+      ...(include.active ? activeHoldings : []),
+      ...(include.exited ? exitedHoldings : []),
+    ], sort);
 
-  const tableBody = allRows.map(h => {
-    const isActive = h.status === 'active';
-    const pnlPct = isActive
-      ? parseFloat(h.pnl_percent)
-      : (parseFloat(h.total_buy_amount) > 0 ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0);
-    return [
-      h.first_buy_date ? fmt.date(h.first_buy_date) : '—',
-      h.stock_name || h.symbol,
-      parseFloat(h.avg_buy_price).toFixed(2),
-      parseFloat(h.total_buy_amount).toFixed(2),
-      parseFloat(h.total_bought_quantity || h.quantity).toFixed(2),
-      h.last_sell_date ? fmt.date(h.last_sell_date) : '',
-      parseFloat(h.avg_sell_price) > 0 ? parseFloat(h.avg_sell_price).toFixed(2) : '',
-      `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
-    ];
-  });
+    const tableBody = allRows.map(h => {
+      const isActive = h.status === 'active';
+      const pnlPct = isActive
+        ? parseFloat(h.pnl_percent)
+        : (parseFloat(h.total_buy_amount) > 0 ? parseFloat(h.realized_pnl) / parseFloat(h.total_buy_amount) * 100 : 0);
+      return [
+        h.first_buy_date ? fmt.date(h.first_buy_date) : '—',
+        h.stock_name || h.symbol,
+        parseFloat(h.avg_buy_price).toFixed(2),
+        parseFloat(h.total_buy_amount).toFixed(2),
+        parseFloat(h.total_bought_quantity || h.quantity).toFixed(2),
+        h.last_sell_date ? fmt.date(h.last_sell_date) : '',
+        parseFloat(h.avg_sell_price) > 0 ? parseFloat(h.avg_sell_price).toFixed(2) : '',
+        `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`,
+      ];
+    });
 
-  autoTable(doc, {
-    startY: CONTENT_Y,
-    margin: { left: tableX },
-    tableWidth: tableW,
-    head: [['BUY DATE', 'NAME', 'BOUGHT\nPRICE', 'INVESTED\nAMOUNT', 'QTY', 'SELL DATE', 'SOLD\nPRICE', 'P/L%']],
-    body: tableBody,
-    theme: 'grid',
-    headStyles: { fillColor: GREEN_DARK, textColor: WHITE, fontSize: 6.5, fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 1, right: 1 }, lineColor: GREEN_MED, lineWidth: 0.3 },
-    bodyStyles: { fontSize: 6.8, cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 }, lineColor: [210, 230, 215], lineWidth: 0.2 },
-    alternateRowStyles: { fillColor: GREEN_PALE },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 17 },
-      1: { halign: 'left',   cellWidth: 'auto' },
-      2: { halign: 'right',  cellWidth: 18 },
-      3: { halign: 'right',  cellWidth: 22 },
-      4: { halign: 'center', cellWidth: 14 },
-      5: { halign: 'center', cellWidth: 17 },
-      6: { halign: 'right',  cellWidth: 18 },
-      7: { halign: 'right',  cellWidth: 14 },
-    },
-    didParseCell: (data) => {
-      if (data.column.index === 7 && data.section === 'body') {
-        const n = parseFloat(data.cell.raw);
-        if (!isNaN(n)) {
-          data.cell.styles.textColor = n >= 0 ? [0, 140, 60] : [200, 30, 30];
-          data.cell.styles.fontStyle = 'bold';
+    autoTable(doc, {
+      startY: CONTENT_Y,
+      margin: { left: tableX },
+      tableWidth: tableW,
+      head: [['BUY DATE', 'NAME', 'BOUGHT\nPRICE', 'INVESTED\nAMOUNT', 'QTY', 'SELL DATE', 'SOLD\nPRICE', 'P/L%']],
+      body: tableBody,
+      theme: 'grid',
+      headStyles: { fillColor: GREEN_DARK, textColor: WHITE, fontSize: 6.5, fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5, left: 1, right: 1 }, lineColor: GREEN_MED, lineWidth: 0.3 },
+      bodyStyles: { fontSize: 6.8, cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 }, lineColor: [210, 230, 215], lineWidth: 0.2 },
+      alternateRowStyles: { fillColor: GREEN_PALE },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 17 },
+        1: { halign: 'left',   cellWidth: 'auto' },
+        2: { halign: 'right',  cellWidth: 18 },
+        3: { halign: 'right',  cellWidth: 22 },
+        4: { halign: 'center', cellWidth: 14 },
+        5: { halign: 'center', cellWidth: 17 },
+        6: { halign: 'right',  cellWidth: 18 },
+        7: { halign: 'right',  cellWidth: 14 },
+      },
+      didParseCell: (data) => {
+        if (data.column.index === 7 && data.section === 'body') {
+          const n = parseFloat(data.cell.raw);
+          if (!isNaN(n)) {
+            data.cell.styles.textColor = n >= 0 ? [0, 140, 60] : [200, 30, 30];
+            data.cell.styles.fontStyle = 'bold';
+          }
         }
-      }
-    },
-  });
+      },
+    });
+  }
 
   doc.setFillColor(...GREEN_DARK);
   doc.rect(0, H - 8, W, 8, 'F');
@@ -275,10 +296,10 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(17);
     doc.setTextColor(...WHITE);
-    doc.text(`MONEY MATRIZ ${takings ? 'EXIT' : 'MONTHLY'} REPORT`, 111, 12);
+    doc.text(`MONEY MATRIZ ${isExit ? 'EXIT' : 'MONTHLY'} REPORT`, 111, 12);
     doc.setFontSize(11);
     doc.setTextColor(...GOLD);
-    doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, 171, 22, { align: 'center' });
+    doc.text(`${MONTHS[month].toUpperCase()}  ${year}`, W / 2, 22, { align: 'center' });
     doc.setFillColor(...GREEN_PALE);
     doc.rect(0, BANNER_H + 1, W, 8, 'F');
     doc.setFont('helvetica', 'bold');
@@ -371,7 +392,7 @@ async function exportToPDF({ userName, portfolio, month, year, include = { activ
     });
   }
 
-  const suffix = takings ? 'exit_report' : 'report';
+  const suffix = isExit ? 'exit_report' : 'report';
   doc.save(`${(userName || 'portfolio').replace(/\s+/g, '_')}_${suffix}_${monthName}_${year}.pdf`);
 }
 
@@ -735,6 +756,22 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
   const [exitYear, setExitYear] = useState(new Date().getFullYear());
   const [companyPct, setCompanyPct] = useState(40);
   const [userPct, setUserPct] = useState(60);
+  const [fixedPct, setFixedPct] = useState('');
+  const [userScheme, setUserScheme] = useState('');
+  const [totalDeposited, setTotalDeposited] = useState(0);
+  const { user: authUser } = useAuth();
+  const isFixedScheme = userScheme.split(',').map(s => s.trim().toLowerCase()).some(s => s === 'scheme-1' || s === 'scheme-4');
+
+  useEffect(() => {
+    if (userId === 'me') { setUserScheme(authUser?.scheme || ''); return; }
+    api.get(`/users/${userId}`).then(r => setUserScheme(r.data.scheme || '')).catch(() => setUserScheme(''));
+  }, [userId, authUser]);
+
+  useEffect(() => {
+    api.get(`/portfolio/${userId}/funds`)
+      .then(r => setTotalDeposited(r.data.filter(f => f.type === 'deposit').reduce((s, f) => s + parseFloat(f.amount), 0)))
+      .catch(() => setTotalDeposited(0));
+  }, [userId]);
 
   const handleSort = (col) => {
     setSort(s => ({ key: col, dir: s.key === col && s.dir === 'desc' ? 'asc' : 'desc' }));
@@ -1224,7 +1261,11 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
 
       <Modal open={exitDialog} onClose={() => setExitDialog(false)} title="Exit PDF Report" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Select the month/year and the takings split on realized P/L.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {isFixedScheme
+              ? 'This client is on a fixed-return scheme (no stock holdings). Select the month/year and enter the % of deposited amount.'
+              : 'Select the month/year and the takings split on realized P/L.'}
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Month</label>
@@ -1237,34 +1278,49 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
               <input type="number" className="input w-full" value={exitYear} min="2000" max="2100"
                 onChange={e => setExitYear(parseInt(e.target.value))} />
             </div>
-            <div>
-              <label className="label">Company Takings %</label>
-              <input type="number" className="input w-full" min="0" max="100" step="0.01" value={companyPct}
-                onChange={e => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setCompanyPct(v);
-                  setUserPct(parseFloat((100 - v).toFixed(2)));
-                }} />
-            </div>
-            <div>
-              <label className="label">User Takings %</label>
-              <input type="number" className="input w-full" min="0" max="100" step="0.01" value={userPct}
-                onChange={e => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setUserPct(v);
-                  setCompanyPct(parseFloat((100 - v).toFixed(2)));
-                }} />
-            </div>
+            {isFixedScheme ? (
+              <div className="col-span-2">
+                <label className="label">Interest Rate %</label>
+                <input type="number" className="input w-full" min="0" step="0.01" value={fixedPct}
+                  placeholder="Enter percentage"
+                  onChange={e => setFixedPct(e.target.value)} />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="label">Company Takings %</label>
+                  <input type="number" className="input w-full" min="0" max="100" step="0.01" value={companyPct}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setCompanyPct(v);
+                      setUserPct(parseFloat((100 - v).toFixed(2)));
+                    }} />
+                </div>
+                <div>
+                  <label className="label">User Takings %</label>
+                  <input type="number" className="input w-full" min="0" max="100" step="0.01" value={userPct}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 0;
+                      setUserPct(v);
+                      setCompanyPct(parseFloat((100 - v).toFixed(2)));
+                    }} />
+                </div>
+              </>
+            )}
           </div>
-          {(companyPct + userPct).toFixed(2) != 100 && (
+          {!isFixedScheme && (companyPct + userPct).toFixed(2) != 100 && (
             <p className="text-xs text-amber-500">Company % + User % should add up to 100%.</p>
           )}
           <div className="flex gap-3 pt-1">
             <button onClick={() => setExitDialog(false)} className="btn-secondary flex-1">Cancel</button>
-            <button onClick={() => {
+            <button disabled={isFixedScheme && !(parseFloat(fixedPct) > 0)} onClick={() => {
               setExitDialog(false);
-              exportToPDF({ userName, portfolio: data, month: exitMonth, year: exitYear, sort, takings: { companyPct, userPct } }).catch(console.error);
-            }} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              if (isFixedScheme) {
+                exportToPDF({ userName, portfolio: data, month: exitMonth, year: exitYear, sort, fixedReturn: { pct: parseFloat(fixedPct) }, scheme: userScheme, totalDeposited }).catch(console.error);
+              } else {
+                exportToPDF({ userName, portfolio: data, month: exitMonth, year: exitYear, sort, takings: { companyPct, userPct } }).catch(console.error);
+              }
+            }} className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <Download size={14} /> Export
             </button>
           </div>

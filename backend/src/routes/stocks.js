@@ -85,11 +85,12 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
         EXISTS (
           SELECT 1 FROM transactions t
           WHERE t.stock_id = s.id AND t.type = 'buy'
-          AND t.pnl_settled = false
+          AND COALESCE(t.pnl_settled, false) = false
           AND NOT (t.investment_settled = true AND t.pnl_settled = true)
           AND EXISTS (
             SELECT 1 FROM transactions sell
             WHERE sell.stock_id = s.id AND sell.type = 'sell'
+            AND sell.user_id = t.user_id
             AND (sell.group_id = t.group_id OR (sell.group_id IS NULL AND t.group_id IS NULL))
           )
         ) AS has_unsettled_pnl,

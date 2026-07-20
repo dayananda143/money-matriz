@@ -2369,7 +2369,7 @@ export default function StocksPage() {
   const [settleFilter, setSettleFilter] = useState(() => localStorage.getItem('stocks_settle_filter') || null); // null | 'investment' | 'pnl'
   const [stockPage, setStockPage] = useState(1);
   const [stockSearch, setStockSearch] = useState('');
-  const [stockLimit, setStockLimit] = useState(10);
+  const [stockLimit, setStockLimit] = useState(() => parseInt(localStorage.getItem('stocks_page_limit'), 10) || 10);
   const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'stop_loss', 'target', 'period', 'status', 'updated'];
   const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', stop_loss: 'Stop Loss', target: 'Target', period: 'Period', status: 'Status', updated: 'Updated' };
   const [stockVisibleCols, setStockVisibleCols] = useState(() => {
@@ -2563,7 +2563,7 @@ export default function StocksPage() {
             <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
             <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
               {[5, 10, 15, 20, 25].map(n => (
-                <button key={n} onClick={() => { setStockLimit(n); setStockPage(1); }}
+                <button key={n} onClick={() => { setStockLimit(n); localStorage.setItem('stocks_page_limit', n); setStockPage(1); }}
                   className={`px-2.5 py-1 transition-colors ${stockLimit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
                   {n}
                 </button>
