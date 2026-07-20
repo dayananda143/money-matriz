@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, Columns, BellRing } from 'lucide-react';
+import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, ArrowLeftRight, Columns, BellRing } from 'lucide-react';
 import api from '../../api';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -261,7 +261,7 @@ function SellModal({ stock, holder, open, onClose, onDone, groupId }) {
         brokerage: form.brokerage ? parseFloat(form.brokerage) : 0,
         notes: form.notes || undefined,
         executed_at: form.executed_at || undefined,
-        group_id: groupId || undefined,
+        group_id: (holder?.group_id ?? groupId) || undefined,
       });
       onDone();
       onClose();
@@ -330,6 +330,119 @@ function SellModal({ stock, holder, open, onClose, onDone, groupId }) {
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
           <button type="submit" disabled={saving} className="btn-danger flex-1">{saving ? 'Selling...' : 'Confirm Sell'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function TransferModal({ stock, holder, users, holders, open, onClose, onDone }) {
+  const [form, setForm] = useState({ to_user_id: '', quantity: '', exit_price: '', buy_price: '', executed_at: '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open || !holder || !stock) return;
+    const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+    const p = stock.current_price ? parseFloat(stock.current_price).toFixed(2) : '';
+    setForm({ to_user_id: '', quantity: '', exit_price: p, buy_price: p, executed_at: today, notes: '' });
+    setError('');
+  }, [open, holder, stock]);
+
+  const maxQty = parseFloat(parseFloat(holder?.quantity || 0).toFixed(2));
+  const toUser = users.find(u => String(u.id) === String(form.to_user_id));
+  const existingHolder = holders.find(h => String(h.id) === String(form.to_user_id));
+  const existingHolding = parseFloat(existingHolder?.quantity || 0) > 0;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!form.to_user_id) { setError('Select who to transfer shares to'); return; }
+    setError(''); setSaving(true);
+    try {
+      await api.post(`/stocks/${stock.id}/transfer`, {
+        from_user_id: holder.id,
+        to_user_id: form.to_user_id,
+        quantity: parseFloat(form.quantity),
+        exit_price: parseFloat(form.exit_price),
+        buy_price: parseFloat(form.buy_price),
+        executed_at: form.executed_at || undefined,
+        notes: form.notes || undefined,
+        from_group_id: holder?.group_id ?? undefined,
+      });
+      onDone();
+      onClose();
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={holder ? `Transfer — ${holder.name} · ${stock?.symbol}` : ''}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
+        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-600 dark:text-gray-400">
+          Available shares: <strong className="text-gray-900 dark:text-white">{fmt.number(maxQty, 2)}</strong>
+          <span className="mx-2">·</span>
+          Avg buy price: <strong className="text-gray-900 dark:text-white">{fmt.currency(holder?.avg_buy_price)}</strong>
+        </div>
+        <div>
+          <label className="label">Transfer To</label>
+          <select className="input" value={form.to_user_id}
+            onChange={e => setForm(f => ({ ...f, to_user_id: e.target.value }))} required>
+            <option value="">Select investor…</option>
+            {users.filter(u => String(u.id) !== String(holder?.id)).map(u => (
+              <option key={u.id} value={u.id}>{u.name} ({u.user_type})</option>
+            ))}
+          </select>
+          {toUser && existingHolding && (
+            <p className="text-xs text-blue-500 mt-1">
+              {toUser.name} already holds {fmt.number(existingHolder.quantity, 2)} shares of {stock?.symbol} — the transferred shares will be merged into that position (weighted-average buy price).
+            </p>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Quantity to Transfer</label>
+            <div className="flex gap-2">
+              <input type="number" className="input" min="0.01" max={maxQty} step="0.01" value={form.quantity}
+                onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} required />
+              <button type="button" onClick={() => setForm(f => ({ ...f, quantity: parseFloat(maxQty).toFixed(2) }))}
+                className="btn-secondary px-3 flex-shrink-0 text-xs whitespace-nowrap">
+                All
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Max: {fmt.number(maxQty, 2)}</p>
+          </div>
+          <div>
+            <label className="label">Transfer Date</label>
+            <input type="date" lang="en-US" className="input [color-scheme:light] dark:[color-scheme:dark]" value={form.executed_at}
+              onChange={e => setForm(f => ({ ...f, executed_at: e.target.value }))} required />
+          </div>
+          <div>
+            <label className="label">{holder?.name || 'Sender'}'s Exit Price (₹)</label>
+            <input type="number" className="input" min="0.01" step="0.01" value={form.exit_price}
+              onChange={e => setForm(f => ({ ...f, exit_price: e.target.value }))} required />
+          </div>
+          <div>
+            <label className="label">{toUser?.name || 'Receiver'}'s Buy Price (₹)</label>
+            <input type="number" className="input" min="0.01" step="0.01" value={form.buy_price}
+              onChange={e => setForm(f => ({ ...f, buy_price: e.target.value }))} required />
+          </div>
+        </div>
+        {form.quantity && form.exit_price && (
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-400 space-y-1">
+            <div>{holder?.name}'s P&amp;L on this transfer: <strong className={pnlColor(parseFloat(form.exit_price) - parseFloat(holder?.avg_buy_price || 0))}>
+              {pnlSign(parseFloat(form.exit_price) - parseFloat(holder?.avg_buy_price || 0))}
+              {fmt.currency((parseFloat(form.exit_price) - parseFloat(holder?.avg_buy_price || 0)) * parseFloat(form.quantity))}
+            </strong></div>
+          </div>
+        )}
+        <div>
+          <label className="label">Notes (optional)</label>
+          <input className="input" placeholder="e.g. Family transfer" value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? 'Transferring...' : 'Confirm Transfer'}</button>
         </div>
       </form>
     </Modal>
@@ -772,6 +885,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [editBuyOpen, setEditBuyOpen] = useState(false);
   const [editHolder, setEditHolder] = useState(null);
   const [sellHolder, setSellHolder] = useState(null);
+  const [transferHolder, setTransferHolder] = useState(null);
   const [deleteHolder, setDeleteHolder] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
@@ -801,6 +915,13 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [groups, setGroups] = useState([]);
   const [activeGroupId, setActiveGroupId] = useState(null);
   const [allUsers, setAllUsers] = useState([]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const closeMenu = () => setOpenMenuId(null);
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
+  }, [openMenuId]);
 
   const loadHolders = () => {
     if (!stock) return;
@@ -1384,20 +1505,29 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                                 onMouseLeave={() => setOpenMenuId(null)}
                                 onClick={e => e.stopPropagation()}
                               >
-                                {h.status === 'active' && (
-                                  <button onClick={() => { setSellHolder(activeGroupId ? { ...holder, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                {activeGroupId && h.status === 'active' && (
+                                  <button onClick={() => { setSellHolder({ ...holder, group_id: h.group_id, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) }); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <TrendingDown size={13} /> Sell Shares
+                                  </button>
+                                )}
+                                {activeGroupId && h.status === 'active' && (
+                                  <button onClick={() => { setTransferHolder({ ...holder, group_id: h.group_id, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) }); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                    <ArrowLeftRight size={13} /> Transfer Shares
                                   </button>
                                 )}
                                 <button onClick={() => { openTxnHistory(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                   <History size={13} /> History
                                 </button>
-                                <button onClick={() => { setEditHolder(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
-                                  <Pencil size={13} /> Edit
-                                </button>
-                                <button onClick={() => { setDeleteHolder(h.txn_id ? { ...holder, txn_id: h.txn_id } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
-                                  <Trash2 size={13} /> Delete
-                                </button>
+                                {activeGroupId && (
+                                  <button onClick={() => { setEditHolder(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                    <Pencil size={13} /> Edit
+                                  </button>
+                                )}
+                                {activeGroupId && (
+                                  <button onClick={() => { setDeleteHolder(h.txn_id ? { ...holder, txn_id: h.txn_id } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
+                                    <Trash2 size={13} /> Delete
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1517,6 +1647,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           })
         : groupHolders} open={sellAllOpen} onClose={() => setSellAllOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
       <SellModal stock={stock} holder={sellHolder} open={!!sellHolder} onClose={() => setSellHolder(null)} onDone={loadHolders} groupId={activeGroupId} />
+      <TransferModal stock={stock} holder={transferHolder} users={allUsers} holders={holders} open={!!transferHolder} onClose={() => setTransferHolder(null)} onDone={loadHolders} />
       <EditHoldingModal stock={stock} holder={editHolder} open={!!editHolder} onClose={() => setEditHolder(null)} onDone={loadHolders} />
 
       {/* Settlement Summary Modal */}
@@ -2235,6 +2366,7 @@ export default function StocksPage() {
   const [stockMenuPos, setStockMenuPos] = useState({ top: 0, left: 0 });
   const [tableSort, setTableSort] = useState({ key: 'symbol', dir: 'asc' });
   const [stockFilter, setStockFilter] = useState('active');
+  const [settleFilter, setSettleFilter] = useState(() => localStorage.getItem('stocks_settle_filter') || null); // null | 'investment' | 'pnl'
   const [stockPage, setStockPage] = useState(1);
   const [stockSearch, setStockSearch] = useState('');
   const [stockLimit, setStockLimit] = useState(10);
@@ -2346,9 +2478,11 @@ export default function StocksPage() {
 
   const isEffectivelyActive = (s) => s.is_active || s.has_active_investors;
 
+  const isSearching = !!stockSearch.trim();
   const filteredStocks = stocks
-    .filter(s => stockFilter === 'all' || (stockFilter === 'active' ? isEffectivelyActive(s) : !isEffectivelyActive(s)))
-    .filter(s => !stockSearch.trim() || s.symbol.toLowerCase().includes(stockSearch.toLowerCase()) || s.name.toLowerCase().includes(stockSearch.toLowerCase()));
+    .filter(s => isSearching || stockFilter === 'all' || (stockFilter === 'active' ? isEffectivelyActive(s) : !isEffectivelyActive(s)))
+    .filter(s => isSearching || !settleFilter || (settleFilter === 'investment' ? (isEffectivelyActive(s) && s.has_unsettled_investment) : s.has_unsettled_pnl))
+    .filter(s => !isSearching || s.symbol.toLowerCase().includes(stockSearch.toLowerCase()) || s.name.toLowerCase().includes(stockSearch.toLowerCase()));
 
 
   const sortedStocks = [...filteredStocks].sort((a, b) => {
@@ -2401,6 +2535,15 @@ export default function StocksPage() {
             ))}
           </div>
           <div className="flex items-center gap-3 mb-1">
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {[{ key: 'investment', label: 'Investment Settled' }, { key: 'pnl', label: 'P/L Settled' }].map(t => (
+                <button key={t.key}
+                  onClick={() => { setSettleFilter(f => { const next = f === t.key ? null : t.key; next ? localStorage.setItem('stocks_settle_filter', next) : localStorage.removeItem('stocks_settle_filter'); return next; }); setStockPage(1); }}
+                  className={`px-2.5 py-1 transition-colors ${settleFilter === t.key ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
             <div className="relative">
               <button onClick={() => setStockColMenuOpen(o => !o)}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">

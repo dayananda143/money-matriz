@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   RefreshCw, Plus, Trash2, CalendarClock, Pencil,
-  ArrowLeft, ChevronLeft, ChevronRight, Users, UserPlus, X, ChevronUp, ChevronDown, Copy, Check, Columns, Download,
+  ArrowLeft, ChevronLeft, ChevronRight, Users, UserPlus, X, ChevronUp, ChevronDown, Copy, Check, Columns, Download, FileSpreadsheet, Info,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -126,6 +127,31 @@ async function exportSIPToPDF({ entries, shareholderInfo, summary, visibleCols }
 
 
 // ── Tiles page (admin only) ───────────────────────────────────────────────────
+function InfoTip({ text }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const ref = useRef(null);
+  const handleEnter = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+    }
+    setOpen(true);
+  };
+  return (
+    <span className="inline-flex items-center ml-0.5" onClick={e => e.stopPropagation()} onMouseEnter={handleEnter} onMouseLeave={() => setOpen(false)} ref={ref}>
+      <Info size={11} className="text-gray-400 hover:text-brand-400 cursor-pointer shrink-0 transition-colors" />
+      {open && (
+        <span style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '220px' }}
+          className="rounded-lg bg-gray-900 px-2.5 py-2 text-[11px] font-normal normal-case tracking-normal text-gray-100 shadow-2xl leading-[1.5] pointer-events-none border border-gray-700 whitespace-normal">
+          <span className="block font-semibold text-white mb-0.5">{text.split('.')[0]}.</span>
+          <span className="text-gray-400">{text.split('.').slice(1).join('.').trim()}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function SIPTilesPage() {
   const navigate = useNavigate();
 
@@ -155,6 +181,23 @@ export function SIPTilesPage() {
   // Inline default-amount editing on tiles
   const [editDefaultId, setEditDefaultId] = useState(null);
   const [editDefaultVal, setEditDefaultVal] = useState('');
+
+  // Table view: sort + column visibility + page size
+  const [tileSort, setTileSort] = useState({ key: 'name', dir: 'asc' });
+  const TILE_COLS = ['entries', 'invested', 'net_total', 'sip_amount', 'additional_amount', 'withdrawals', 'cash_on_hand', 'default', 'status'];
+  const TILE_COL_LABEL = { entries: 'Entries', invested: 'Invested', net_total: 'Total SIP Amount', sip_amount: 'SIP Amount', additional_amount: 'Additional', withdrawals: 'Withdrawals', cash_on_hand: 'Cash on Hand', default: 'Default/mo', status: 'Status' };
+  const [tileVisibleCols, setTileVisibleCols] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('sip_tiles_cols') || 'null'); return s ? new Set(s) : new Set(TILE_COLS); } catch { return new Set(TILE_COLS); }
+  });
+  const [tileColMenuOpen, setTileColMenuOpen] = useState(false);
+  const toggleTileCol = col => setTileVisibleCols(prev => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
+    localStorage.setItem('sip_tiles_cols', JSON.stringify([...next])); return next;
+  });
+  const toggleTileSort = (key) => setTileSort(s => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }));
+  const [tileSearch, setTileSearch] = useState('');
+  const [tilePage, setTilePage] = useState(1);
+  const [tileLimit, setTileLimit] = useState(10);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -250,11 +293,53 @@ export function SIPTilesPage() {
     setEditDefaultId(null);
   };
 
-  const filteredParticipants = participants.filter(p => tab === 'active' ? p.is_active !== false : p.is_active === false);
+  const filteredParticipants = participants
+    .filter(p => tab === 'all' || (tab === 'active' ? p.is_active !== false : p.is_active === false))
+    .filter(p => !tileSearch.trim() || p.name.toLowerCase().includes(tileSearch.toLowerCase()) || p.email.toLowerCase().includes(tileSearch.toLowerCase()));
+
+  const sortedParticipants = [...filteredParticipants].sort((a, b) => {
+    const { key, dir } = tileSort;
+    let av, bv;
+    if (key === 'name') { av = a.name?.toLowerCase() || ''; bv = b.name?.toLowerCase() || ''; }
+    else if (key === 'entries') { av = a.total_plans || 0; bv = b.total_plans || 0; }
+    else if (key === 'invested') { av = parseFloat(a.total_invested || 0); bv = parseFloat(b.total_invested || 0); }
+    else if (key === 'net_total') { av = parseFloat(a.net_total || 0); bv = parseFloat(b.net_total || 0); }
+    else if (key === 'sip_amount') { av = parseFloat(a.sip_amount || 0); bv = parseFloat(b.sip_amount || 0); }
+    else if (key === 'additional_amount') { av = parseFloat(a.additional_amount || 0); bv = parseFloat(b.additional_amount || 0); }
+    else if (key === 'withdrawals') { av = parseFloat(a.withdraw_amount || 0); bv = parseFloat(b.withdraw_amount || 0); }
+    else if (key === 'cash_on_hand') { av = parseFloat(a.cash_on_hand || 0); bv = parseFloat(b.cash_on_hand || 0); }
+    else if (key === 'default') { av = parseFloat(a.default_amount || 0); bv = parseFloat(b.default_amount || 0); }
+    else { av = ''; bv = ''; }
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return dir === 'asc' ? cmp : -cmp;
+  });
 
   const totalBulk = filteredParticipants.reduce((s, p) => s + (bulkSelected[p.id] ? (parseFloat(bulkAmounts[p.id]) || 0) : 0), 0);
   const selectedCount = filteredParticipants.filter(p => bulkSelected[p.id]).length;
   const allSelected = filteredParticipants.length > 0 && selectedCount === filteredParticipants.length;
+
+  const tileTotalPages = Math.max(1, Math.ceil(sortedParticipants.length / tileLimit));
+  const pagedParticipants = sortedParticipants.slice((tilePage - 1) * tileLimit, tilePage * tileLimit);
+
+  const exportTilesExcel = () => {
+    const rows = sortedParticipants.map(sh => ({
+      Name: sh.name,
+      Email: sh.email,
+      Entries: sh.total_plans,
+      Invested: parseFloat(sh.total_invested || 0),
+      'Total SIP Amount': parseFloat(sh.net_total || 0),
+      'SIP Amount': parseFloat(sh.sip_amount || 0),
+      Additional: parseFloat(sh.additional_amount || 0),
+      Withdrawals: parseFloat(sh.withdraw_amount || 0),
+      'Cash on Hand': parseFloat(sh.cash_on_hand || 0),
+      'Default/mo': sh.default_amount ? parseFloat(sh.default_amount) : '',
+      Status: sh.is_active !== false ? 'Active' : 'Inactive',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'SIP Plans');
+    XLSX.writeFile(wb, `sip_plans_${tab}.xlsx`);
+  };
 
   return (
     <div className="space-y-5">
@@ -279,22 +364,6 @@ export function SIPTilesPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      {!loading && participants.length > 0 && (
-        <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
-          {[['active', 'Active'], ['inactive', 'Inactive']].map(([key, label]) => {
-            const count = participants.filter(p => key === 'active' ? p.is_active !== false : p.is_active === false).length;
-            return (
-              <button key={key} onClick={() => setTab(key)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${tab === key ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}>
-                {label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab === key ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-700 dark:text-brand-400' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{count}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
       {loading ? (
         <div className="space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-16 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />)}</div>
       ) : participants.length === 0 ? (
@@ -302,34 +371,111 @@ export function SIPTilesPage() {
           <Users size={40} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
           <p className="text-gray-500 dark:text-gray-400">No shareholders added yet.</p>
         </div>
-      ) : filteredParticipants.length === 0 ? (
-        <div className="text-center py-16">
-          <Users size={40} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-gray-500 dark:text-gray-400">No {tab} shareholders.</p>
-        </div>
       ) : (
-        <div className="space-y-2">
-          {filteredParticipants.map(sh => (
-            <div key={sh.id} className="flex items-center gap-2">
-              <button onClick={() => navigate(`/sip/${sh.id}`)}
-                className="flex-1 flex items-center gap-4 p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-brand-400 dark:hover:border-brand-500 hover:shadow-sm transition-all text-left group">
-                <div className="w-10 h-10 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-sm flex-shrink-0">
-                  {sh.name[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 dark:text-white">{sh.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{sh.email}</p>
-                </div>
-                <div className="flex items-center gap-6 text-right">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{sh.total_plans}</p>
-                    <p className="text-xs text-gray-400">entries</p>
+        <div className="card">
+          <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 mb-4">
+            <div className="flex">
+              {[{ key: 'all', label: 'All', count: participants.length }, { key: 'active', label: 'Active', count: participants.filter(p => p.is_active !== false).length }, { key: 'inactive', label: 'Inactive', count: participants.filter(p => p.is_active === false).length }].map(t => (
+                <button key={t.key} onClick={() => { setTab(t.key); setTilePage(1); }}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${tab === t.key ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                  {t.label}
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab === t.key ? 'bg-brand-100 dark:bg-brand-900/30 text-brand-600' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>{t.count}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mb-1">
+              <button onClick={exportTilesExcel}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                <FileSpreadsheet size={12} /> Excel
+              </button>
+              <div className="relative">
+                <button onClick={() => setTileColMenuOpen(o => !o)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                  <Columns size={12} /> Columns <span className="text-brand-600 dark:text-brand-400">{tileVisibleCols.size}</span>
+                </button>
+                {tileColMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-2 w-44">
+                    {TILE_COLS.map(col => (
+                      <label key={col} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={tileVisibleCols.has(col)} onChange={() => toggleTileCol(col)} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+                        {TILE_COL_LABEL[col]}
+                      </label>
+                    ))}
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-brand-600 dark:text-brand-400">{fmt.currency(sh.total_invested)}</p>
-                    <p className="text-xs text-gray-400">invested</p>
-                  </div>
-                  <div onClick={e => e.stopPropagation()}>
+                )}
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Show</span>
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+                {[5, 10, 15, 20, 25].map(n => (
+                  <button key={n} onClick={() => { setTileLimit(n); setTilePage(1); }}
+                    className={`px-2.5 py-1 transition-colors ${tileLimit === n ? 'bg-brand-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                placeholder="Search name or email…"
+                value={tileSearch}
+                onChange={e => { setTileSearch(e.target.value); setTilePage(1); }}
+                className="w-48 px-3 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            </div>
+          </div>
+          <Table>
+            <thead>
+              <tr>
+                {(() => {
+                  const SortBtn = ({ k, label, tip }) => (
+                    <button onClick={() => toggleTileSort(k)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">
+                      {label}
+                      <span className="flex flex-col leading-none">
+                        <ChevronUp size={10} className={tileSort.key === k && tileSort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                        <ChevronDown size={10} className={tileSort.key === k && tileSort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                      </span>
+                      {tip && <InfoTip text={tip} />}
+                    </button>
+                  );
+                  return (<>
+                    <Th><SortBtn k="name" label="Shareholder" tip="The shareholder enrolled in the SIP plan. Click their name to view their full transaction ledger." /></Th>
+                    {tileVisibleCols.has('entries') && <Th><SortBtn k="entries" label="Entries" tip="Total number of SIP entries recorded for this shareholder. Includes SIP, additional, and withdrawal entries." /></Th>}
+                    {tileVisibleCols.has('invested') && <Th><SortBtn k="invested" label="Invested" tip="Raw sum of all entry amounts. Includes SIP and additional contributions. Withdrawals are not subtracted here." /></Th>}
+                    {tileVisibleCols.has('net_total') && <Th><SortBtn k="net_total" label="Total SIP Amount" tip="Net SIP balance for this shareholder. Total deposits (SIP + additional) minus total withdrawals. This is the actual money committed." /></Th>}
+                    {tileVisibleCols.has('sip_amount') && <Th><SortBtn k="sip_amount" label="SIP Amount" tip="Sum of all entries tagged as regular SIP. These are the scheduled monthly contributions made under the SIP plan." /></Th>}
+                    {tileVisibleCols.has('additional_amount') && <Th><SortBtn k="additional_amount" label="Additional" tip="Sum of entries tagged as additional investments. These are one-time or top-up contributions made outside the regular SIP schedule." /></Th>}
+                    {tileVisibleCols.has('withdrawals') && <Th><SortBtn k="withdrawals" label="Withdrawals" tip="Total amount withdrawn by this shareholder. Withdrawals reduce the net SIP balance but are tracked separately here." /></Th>}
+                    {tileVisibleCols.has('cash_on_hand') && <Th><SortBtn k="cash_on_hand" label="Cash on Hand" tip="Liquid balance available for this shareholder. Calculated as Total SIP Amount minus the current value of active holdings (shares still in portfolio)." /></Th>}
+                    {tileVisibleCols.has('default') && <Th><SortBtn k="default" label="Default/mo" tip="The default SIP amount pre-filled when adding a bulk entry for this shareholder. Click the value in any row to edit it inline." /></Th>}
+                    {tileVisibleCols.has('status') && <Th>Status</Th>}
+                    <Th>Actions</Th>
+                  </>);
+                })()}
+              </tr>
+            </thead>
+            <tbody>
+              {!pagedParticipants.length && <EmptyRow cols={1 + tileVisibleCols.size + 1} message={`No ${tab === 'all' ? '' : tab + ' '}shareholders found`} />}
+              {pagedParticipants.map(sh => (
+                <tr key={sh.id} onClick={() => navigate(`/sip/${sh.id}`)}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center text-brand-700 dark:text-brand-400 font-bold text-xs flex-shrink-0">
+                        {sh.name[0].toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-white text-sm">{sh.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{sh.email}</p>
+                      </div>
+                    </div>
+                  </Td>
+                  {tileVisibleCols.has('entries') && <Td className="text-sm text-gray-700 dark:text-gray-300">{sh.total_plans}</Td>}
+                  {tileVisibleCols.has('invested') && <Td className="text-sm font-semibold text-brand-600 dark:text-brand-400">{fmt.currency(sh.total_invested)}</Td>}
+                  {tileVisibleCols.has('net_total') && <Td className="text-sm font-semibold text-gray-900 dark:text-white">{fmt.currency(sh.net_total)}</Td>}
+                  {tileVisibleCols.has('sip_amount') && <Td className="text-sm text-gray-700 dark:text-gray-300">{fmt.currency(sh.sip_amount)}</Td>}
+                  {tileVisibleCols.has('additional_amount') && <Td className="text-sm text-green-600 dark:text-green-400">{fmt.currency(sh.additional_amount)}</Td>}
+                  {tileVisibleCols.has('withdrawals') && <Td className="text-sm text-red-600 dark:text-red-400">{fmt.currency(sh.withdraw_amount)}</Td>}
+                  {tileVisibleCols.has('cash_on_hand') && <Td className={`text-sm font-semibold ${parseFloat(sh.cash_on_hand) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt.currency(sh.cash_on_hand)}</Td>}
+                  {tileVisibleCols.has('default') && <Td onClick={e => e.stopPropagation()}>
                     {editDefaultId === sh.id ? (
                       <div className="flex items-center gap-1">
                         <input autoFocus type="number" min="0" step="0.01"
@@ -346,23 +492,55 @@ export function SIPTilesPage() {
                       </div>
                     ) : (
                       <button onClick={() => { setEditDefaultId(sh.id); setEditDefaultVal(sh.default_amount || ''); }}
-                        className="text-right group/def">
-                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 group-hover/def:text-brand-600 dark:group-hover/def:text-brand-400">
-                          {sh.default_amount ? fmt.currency(sh.default_amount) : <span className="text-gray-300 dark:text-gray-600 text-xs">set default</span>}
-                        </p>
-                        <p className="text-xs text-gray-400">default/mo</p>
+                        className="text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-brand-600 dark:hover:text-brand-400">
+                        {sh.default_amount ? fmt.currency(sh.default_amount) : <span className="text-gray-300 dark:text-gray-600 text-xs font-normal">set default</span>}
                       </button>
                     )}
-                  </div>
-                  <ChevronRight size={16} className="text-gray-300 group-hover:text-brand-500 transition-colors" />
-                </div>
-              </button>
-              <button onClick={() => handleRemoveShareholder(sh)} title="Remove from SIP"
-                className="p-2.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl border border-gray-200 dark:border-gray-700 transition-colors flex-shrink-0">
-                <X size={16} />
-              </button>
+                  </Td>}
+                  {tileVisibleCols.has('status') && <Td><span className={sh.is_active !== false ? 'badge-green' : 'badge-red'}>{sh.is_active !== false ? 'Active' : 'Inactive'}</span></Td>}
+                  <Td onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => navigate(`/sip/${sh.id}`)} title="View"
+                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-900/20 rounded-lg transition-colors">
+                        <ChevronRight size={14} />
+                      </button>
+                      <button onClick={() => handleRemoveShareholder(sh)} title="Remove from SIP"
+                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          {tileTotalPages > 1 && (
+            <div className="flex justify-center px-4 py-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setTilePage(p => Math.max(1, p - 1))} disabled={tilePage <= 1}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed">
+                  <ChevronLeft size={14} />
+                </button>
+                {(() => {
+                  const range = [];
+                  for (let i = 1; i <= tileTotalPages; i++) {
+                    if (i === 1 || i === tileTotalPages || (i >= tilePage - 1 && i <= tilePage + 1)) range.push(i);
+                  }
+                  const out = []; let prev = null;
+                  for (const p of range) { if (prev !== null && p - prev > 1) out.push('...' + p); out.push(p); prev = p; }
+                  return out.map((p, i) => typeof p === 'string'
+                    ? <span key={p + i} className="text-xs text-gray-300 dark:text-gray-600 px-1">…</span>
+                    : <button key={p} onClick={() => setTilePage(p)}
+                        className={`min-w-[28px] h-7 rounded-lg text-xs font-medium transition-colors ${p === tilePage ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{p}</button>
+                  );
+                })()}
+                <button onClick={() => setTilePage(p => Math.min(tileTotalPages, p + 1))} disabled={tilePage >= tileTotalPages}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-25 disabled:cursor-not-allowed">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -733,40 +911,6 @@ export default function SIPPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      {!loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Total SIP Amount</p>
-            <p className="text-xl font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</p>
-            <p className="text-xs text-gray-400 mt-1">deposits − withdrawals</p>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">SIP Amount</p>
-            <p className="text-xl font-bold text-brand-600 dark:text-brand-400">{fmt.currency(sipTotal)}</p>
-            <p className="text-xs text-gray-400 mt-1">{entries.filter(e => e.sip_type === 'sip').length} entries</p>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Additional Amount</p>
-            <p className="text-xl font-bold text-green-600 dark:text-green-400">{fmt.currency(additionalTotal)}</p>
-            <p className="text-xs text-gray-400 mt-1">{entries.filter(e => e.sip_type === 'additional').length} entries</p>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-red-100 dark:border-red-900/40 rounded-xl p-4">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Withdrawals</p>
-            <p className="text-xl font-bold text-red-600 dark:text-red-400">{fmt.currency(withdrawTotal)}</p>
-            <p className="text-xs text-gray-400 mt-1">{entries.filter(e => e.sip_type === 'withdraw').length} entries</p>
-          </div>
-          {cashOnHand !== null && (
-            <div className={`rounded-xl p-4 border ${cashOnHand >= 0 ? 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700' : 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900/40'}`}>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Cash on Hand</p>
-              <p className={`text-xl font-bold ${cashOnHand >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt.currency(cashOnHand)}</p>
-              <p className="text-xs text-gray-400 mt-1">SIP − deployed</p>
-            </div>
-          )}
-        </div>
-      )}
-
-
       {loading ? (
         <div className="space-y-2">{[1,2,3,4].map(i => <div key={i} className="h-14 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />)}</div>
       ) : (
@@ -801,6 +945,36 @@ export default function SIPPage() {
               </div>
             </div>
           </div>
+          {!loading && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-gray-100 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+              <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total SIP Amount</p>
+                <p className="text-base font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</p>
+              </div>
+              <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">SIP Amount</p>
+                <p className="text-base font-bold text-brand-600 dark:text-brand-400">{fmt.currency(sipTotal)}</p>
+                <p className="text-xs text-gray-400">{entries.filter(e => e.sip_type === 'sip').length} entries</p>
+              </div>
+              <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Additional Amount</p>
+                <p className="text-base font-bold text-green-600 dark:text-green-400">{fmt.currency(additionalTotal)}</p>
+                <p className="text-xs text-gray-400">{entries.filter(e => e.sip_type === 'additional').length} entries</p>
+              </div>
+              <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Withdrawals</p>
+                <p className="text-base font-bold text-red-600 dark:text-red-400">{fmt.currency(withdrawTotal)}</p>
+                <p className="text-xs text-gray-400">{entries.filter(e => e.sip_type === 'withdraw').length} entries</p>
+              </div>
+              {cashOnHand !== null && (
+                <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Cash on Hand</p>
+                  <p className={`text-base font-bold ${cashOnHand >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt.currency(cashOnHand)}</p>
+                  <p className="text-xs text-gray-400">SIP − deployed</p>
+                </div>
+              )}
+            </div>
+          )}
           <Table>
             <thead>
               <tr>

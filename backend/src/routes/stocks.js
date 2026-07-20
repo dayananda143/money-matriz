@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { query } = require('../db');
+const { query, pool } = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 
 const YahooFinance = require('yahoo-finance2').default;
@@ -74,9 +74,25 @@ router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req
         (SELECT CASE WHEN COUNT(DISTINCT h.avg_buy_price) = 1 THEN MIN(h.avg_buy_price) ELSE NULL END
          FROM holdings h WHERE h.stock_id = s.id) AS common_buy_price,
         EXISTS (
-          SELECT 1 FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy'
-          AND (t.investment_settled = false OR t.pnl_settled = false)
+          SELECT 1 FROM holdings h WHERE h.stock_id = s.id AND ROUND(h.quantity::numeric, 2) > 0
         ) AS has_active_investors,
+        EXISTS (
+          SELECT 1 FROM transactions t
+          WHERE t.stock_id = s.id AND t.type = 'buy'
+          AND t.investment_settled = false
+          AND NOT (t.investment_settled = true AND t.pnl_settled = true)
+        ) AS has_unsettled_investment,
+        EXISTS (
+          SELECT 1 FROM transactions t
+          WHERE t.stock_id = s.id AND t.type = 'buy'
+          AND t.pnl_settled = false
+          AND NOT (t.investment_settled = true AND t.pnl_settled = true)
+          AND EXISTS (
+            SELECT 1 FROM transactions sell
+            WHERE sell.stock_id = s.id AND sell.type = 'sell'
+            AND (sell.group_id = t.group_id OR (sell.group_id IS NULL AND t.group_id IS NULL))
+          )
+        ) AS has_unsettled_pnl,
         sa.stop_loss,
         sa.target
       FROM stocks s
@@ -442,6 +458,87 @@ router.get('/:id/sell-transactions', authenticate, requireRole('admin', 'super_a
     const { rows } = await query(sql, params);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST transfer shares from one holder to another (admin only)
+router.post('/:id/transfer', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  const stockId = req.params.id;
+  const { from_user_id, to_user_id, quantity, exit_price, buy_price, executed_at, notes, from_group_id } = req.body;
+  if (!from_user_id || !to_user_id || !quantity || !exit_price || !buy_price) {
+    return res.status(400).json({ error: 'from_user_id, to_user_id, quantity, exit_price, buy_price required' });
+  }
+  if (String(from_user_id) === String(to_user_id)) {
+    return res.status(400).json({ error: 'Cannot transfer shares to the same person' });
+  }
+  const qty = parseFloat(quantity);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: [fromUser] } = await client.query('SELECT name FROM users WHERE id = $1', [from_user_id]);
+    const { rows: [toUser] } = await client.query('SELECT name FROM users WHERE id = $1', [to_user_id]);
+    if (!fromUser || !toUser) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'User not found' }); }
+
+    const { rows: [fromHolding] } = await client.query(
+      'SELECT quantity FROM holdings WHERE user_id = $1 AND stock_id = $2', [from_user_id, stockId]
+    );
+    const held = parseFloat(fromHolding?.quantity || 0);
+    if (held < qty) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Insufficient shares. Available: ${held}` });
+    }
+
+    const txExecAt = executed_at || new Date().toISOString();
+    const sellTotal = parseFloat((qty * parseFloat(exit_price)).toFixed(2));
+    const buyTotal = parseFloat((qty * parseFloat(buy_price)).toFixed(2));
+
+    await client.query(
+      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
+       VALUES ($1, $2, 'sell', $3, $4, $5, $6, $7, $8, 0, $9)`,
+      [from_user_id, stockId, qty, exit_price, sellTotal, notes || `Transferred to ${toUser.name}`, txExecAt, req.user.id, from_group_id || null]
+    );
+    await client.query(
+      `UPDATE holdings SET quantity = quantity - $1, updated_at = NOW() WHERE user_id = $2 AND stock_id = $3`,
+      [qty, from_user_id, stockId]
+    );
+    await client.query('INSERT INTO balances (user_id, cash_balance) VALUES ($1, 0) ON CONFLICT DO NOTHING', [from_user_id]);
+    await client.query('UPDATE balances SET cash_balance = cash_balance + $1, updated_at = NOW() WHERE user_id = $2', [sellTotal, from_user_id]);
+
+    await client.query(
+      `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
+       VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, 0, $9)`,
+      [to_user_id, stockId, qty, buy_price, buyTotal, notes || `Transferred from ${fromUser.name}`, txExecAt, req.user.id, from_group_id || null]
+    );
+    await client.query(
+      `INSERT INTO holdings (user_id, stock_id, quantity, avg_buy_price)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, stock_id) DO UPDATE SET
+         avg_buy_price = (holdings.avg_buy_price * holdings.quantity + $4 * $3) / (holdings.quantity + $3),
+         quantity = holdings.quantity + $3,
+         updated_at = NOW()`,
+      [to_user_id, stockId, qty, buy_price]
+    );
+    await client.query('INSERT INTO balances (user_id, cash_balance) VALUES ($1, 0) ON CONFLICT DO NOTHING', [to_user_id]);
+    await client.query('UPDATE balances SET cash_balance = cash_balance - $1, updated_at = NOW() WHERE user_id = $2', [buyTotal, to_user_id]);
+
+    const { rows: [remaining] } = await client.query(
+      'SELECT COUNT(*) FROM holdings WHERE stock_id = $1 AND ROUND(quantity::numeric, 2) > 0', [stockId]
+    );
+    if (parseInt(remaining.count) === 0) {
+      await client.query('UPDATE stocks SET is_active = false, last_updated = NOW() WHERE id = $1', [stockId]);
+    } else {
+      await client.query('UPDATE stocks SET is_active = true, last_updated = NOW() WHERE id = $1', [stockId]);
+    }
+
+    await client.query('COMMIT');
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
 });
 
 // GET transaction history for a specific holder in a stock

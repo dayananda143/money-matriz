@@ -20,17 +20,17 @@ const CD_ACTIVE_LABEL = { name:'Name', buy_date:'Buy Date', qty:'Qty', avg_buy:'
 const CD_EXITED_LABEL = { name:'Name', buy_date:'Buy Date', sell_date:'Sell Date', qty_bought:'Qty Bought', avg_buy:'Avg Buy', invested:'Invested', realized_pnl:'Realized P&L' };
 const CD_TX_LABEL = { type:'Type', stock:'Stock', qty:'Qty', price:'Price', total:'Total', notes:'Notes' };
 
-async function exportToPDF({ client, portfolio, funds, month, year }) {
+async function exportToPDF({ client, portfolio, funds, month, year, takings }) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const monthName = MONTHS[month].slice(0, 3).toUpperCase();
 
-  // Color palette
-  const GREEN_DARK  = [22, 78, 45];
-  const GREEN_MED   = [34, 120, 70];
-  const GREEN_LIGHT = [220, 245, 230];
-  const GREEN_PALE  = [240, 250, 244];
+  // Color palette — navy for exit/settlement reports, green for regular monthly reports
+  const GREEN_DARK  = takings ? [20, 30, 70]  : [22, 78, 45];
+  const GREEN_MED   = takings ? [35, 55, 115] : [34, 120, 70];
+  const GREEN_LIGHT = takings ? [222, 228, 245] : [220, 245, 230];
+  const GREEN_PALE  = takings ? [241, 244, 252] : [240, 250, 244];
   const GOLD        = [192, 155, 60];
   const WHITE       = [255, 255, 255];
   const GRAY_DARK   = [50, 50, 50];
@@ -73,7 +73,7 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
   doc.setTextColor(...WHITE);
-  doc.text(`MONEY MATRIZ MONTHLY REPORT`, titleIconX + titleIconSize + 3, 12);
+  doc.text(`MONEY MATRIZ ${takings ? 'EXIT' : 'MONTHLY'} REPORT`, titleIconX + titleIconSize + 3, 12);
 
   // Month + year — centred under the title+icon group
   doc.setFontSize(11);
@@ -112,8 +112,15 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   const panelX = 6;
   const panelW = 64;
 
-  const summaryRows = [
-    ['Total Amount',    fmtPdf(totalDeposited)],
+  const summaryRows = takings ? [
+    ['Total Deposited', fmtPdf(totalDeposited)],
+    ['Scheme',       schemeLabel],
+    ['P/L',          `${fmtPct(realizedPct)} (${fmtPdf(realizedPnl)})`],
+    ['Company Takings', `${takings.companyPct}% (${fmtPdf(realizedPnl * takings.companyPct / 100)})`],
+    ['User Takings',    `${takings.userPct}% (${fmtPdf(realizedPnl * takings.userPct / 100)})`],
+    ['Final Settlement Amount', fmtPdf(totalDeposited + realizedPnl * takings.userPct / 100)],
+  ] : [
+    ['Total Deposited',    fmtPdf(totalDeposited)],
     ['Invested Amount', fmtPdf(activeInvested)],
     ['Scheme',          schemeLabel],
     ['Current P/L',     fmtPct(unrealizedPct)],
@@ -133,7 +140,9 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
       1: { fillColor: GREEN_LIGHT, textColor: GRAY_DARK, fontStyle: 'bold', cellWidth: 34, halign: 'right' },
     },
     didParseCell: (data) => {
-      if (data.column.index === 1 && typeof data.cell.raw === 'string' && data.cell.raw.includes('%')) {
+      const label = data.row.raw?.[0];
+      if (data.column.index === 1 && (label === 'Current P/L' || label === 'Realized P/L' || label === 'P/L')
+        && typeof data.cell.raw === 'string' && data.cell.raw.includes('%')) {
         const n = parseFloat(data.cell.raw);
         if (!isNaN(n)) {
           data.cell.styles.textColor = n >= 0 ? [0, 140, 60] : [200, 30, 30];
@@ -233,7 +242,8 @@ async function exportToPDF({ client, portfolio, funds, month, year }) {
   doc.setLineWidth(0.5);
   doc.rect(0.5, 0.5, W - 1, H - 1, 'S');
 
-  doc.save(`${client?.name?.replace(/\s+/g, '_') || 'client'}_report_${monthName}_${year}.pdf`);
+  const suffix = takings ? 'exit_report' : 'report';
+  doc.save(`${client?.name?.replace(/\s+/g, '_') || 'client'}_${suffix}_${monthName}_${year}.pdf`);
 }
 
 function exportToExcel({ client, portfolio, transactions, funds }) {
@@ -356,6 +366,11 @@ export default function ClientDetailPage() {
   const [exportDialog, setExportDialog] = useState(false);
   const [exportMonth, setExportMonth] = useState(new Date().getMonth());
   const [exportYear, setExportYear] = useState(new Date().getFullYear());
+  const [exitDialog, setExitDialog] = useState(false);
+  const [exitMonth, setExitMonth] = useState(new Date().getMonth());
+  const [exitYear, setExitYear] = useState(new Date().getFullYear());
+  const [companyPct, setCompanyPct] = useState(40);
+  const [userPct, setUserPct] = useState(60);
   const [holdingsVisibleCols, setHoldingsVisibleCols] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('client_detail_holdings_cols') || '{}');
@@ -469,7 +484,11 @@ export default function ClientDetailPage() {
         <div className="ml-auto flex gap-2">
           <button onClick={() => setExportDialog(true)}
             className="btn-secondary text-sm flex items-center gap-1.5">
-            <Download size={14} /> Export PDF
+            <Download size={14} /> Monthly Report
+          </button>
+          <button onClick={() => setExitDialog(true)}
+            className="text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+            <Download size={14} /> Exit PDF
           </button>
           <button onClick={() => exportToExcel({ client, portfolio, transactions, funds })}
             className="btn-secondary text-sm flex items-center gap-1.5">
@@ -859,7 +878,7 @@ export default function ClientDetailPage() {
       )}
 
       {/* Export PDF Dialog */}
-      <Modal open={exportDialog} onClose={() => setExportDialog(false)} title="Export PDF Report" size="sm">
+      <Modal open={exportDialog} onClose={() => setExportDialog(false)} title="Monthly Report" size="sm">
         <div className="space-y-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Select the month and year for the report.</p>
           <div className="grid grid-cols-2 gap-3">
@@ -880,6 +899,55 @@ export default function ClientDetailPage() {
             <button onClick={() => {
               setExportDialog(false);
               exportToPDF({ client, portfolio, funds, month: exportMonth, year: exportYear }).catch(console.error);
+            }} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              <Download size={14} /> Export
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={exitDialog} onClose={() => setExitDialog(false)} title="Exit PDF Report" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Select the month/year and the takings split on realized P/L.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Month</label>
+              <select className="input w-full" value={exitMonth} onChange={e => setExitMonth(parseInt(e.target.value))}>
+                {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Year</label>
+              <input type="number" className="input w-full" value={exitYear} min="2000" max="2100"
+                onChange={e => setExitYear(parseInt(e.target.value))} />
+            </div>
+            <div>
+              <label className="label">Company Takings %</label>
+              <input type="number" className="input w-full" min="0" max="100" step="0.01" value={companyPct}
+                onChange={e => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setCompanyPct(v);
+                  setUserPct(parseFloat((100 - v).toFixed(2)));
+                }} />
+            </div>
+            <div>
+              <label className="label">User Takings %</label>
+              <input type="number" className="input w-full" min="0" max="100" step="0.01" value={userPct}
+                onChange={e => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setUserPct(v);
+                  setCompanyPct(parseFloat((100 - v).toFixed(2)));
+                }} />
+            </div>
+          </div>
+          {(companyPct + userPct).toFixed(2) != 100 && (
+            <p className="text-xs text-amber-500">Company % + User % should add up to 100%.</p>
+          )}
+          <div className="flex gap-3 pt-1">
+            <button onClick={() => setExitDialog(false)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={() => {
+              setExitDialog(false);
+              exportToPDF({ client, portfolio, funds, month: exitMonth, year: exitYear, takings: { companyPct, userPct } }).catch(console.error);
             }} className="btn-primary flex-1 flex items-center justify-center gap-2">
               <Download size={14} /> Export
             </button>

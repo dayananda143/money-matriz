@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
-import { Search, ChevronLeft, ChevronRight, Users, Wallet, TrendingUp, LayoutGrid, ChevronUp, ChevronDown, Columns } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, Wallet, TrendingUp, LayoutGrid, ChevronUp, ChevronDown, Columns, Info, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import api from '../../api';
 import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
@@ -15,8 +16,8 @@ const SCHEME_COLORS = [
   { bg: 'bg-violet-50 dark:bg-violet-900/20', border: 'border-violet-200 dark:border-violet-800', active: 'bg-violet-600 border-violet-600', text: 'text-violet-700 dark:text-violet-400', num: 'text-violet-600 dark:text-violet-400' },
 ];
 
-const AC_COLS = ['manager', 'scheme', 'cash', 'portfolio', 'aum', 'status', 'joined'];
-const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', cash: 'Cash Balance', portfolio: 'Portfolio Value', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
+const AC_COLS = ['manager', 'scheme', 'deposited', 'cash', 'portfolio', 'unrealized_pnl', 'realized_pnl', 'total_pnl', 'aum', 'status', 'joined'];
+const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', deposited: 'Amount Given', cash: 'Cash Balance', portfolio: 'Portfolio Value', unrealized_pnl: 'Unrealized P/L', realized_pnl: 'Realized P/L', total_pnl: 'Total P/L', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
 
 const toSlug = s => s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 const fromSlug = (slug, schemes) => schemes.find(s => toSlug(s) === slug) || 'All';
@@ -44,10 +45,66 @@ export default function AllClientsPage() {
     localStorage.setItem('all_clients_cols', JSON.stringify([...next])); return next;
   });
 
+  function exportExcel() {
+    const rows = sorted.map(c => {
+      const unrealized = parseFloat(c.unrealized_pnl || 0);
+      const realized = parseFloat(c.realized_pnl || 0);
+      const cash = parseFloat(c.cash_balance || 0);
+      const portfolio = parseFloat(c.portfolio_value || 0);
+      return {
+        Name: c.name,
+        Email: c.email,
+        Phone: c.phone || '',
+        Manager: c.shareholder_name || '',
+        Scheme: c.scheme || '',
+        'Amount Given': parseFloat(c.total_deposited || 0),
+        'Cash Balance': cash,
+        'Portfolio Value': portfolio,
+        'Unrealized P/L': unrealized,
+        'Realized P/L': realized,
+        'Total P/L': unrealized + realized,
+        'Total AUM': cash + portfolio,
+        Status: c.is_active ? 'Active' : 'Inactive',
+        Joined: c.created_at ? fmt.date(c.created_at) : '',
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    XLSX.writeFile(wb, `clients_${schemeTab.toLowerCase()}_${statusTab}.xlsx`);
+  }
+
   function handleSort(key) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
     setPage(1);
+  }
+
+  function InfoTip({ text }) {
+    const [open, setOpen] = useState(false);
+    const [pos, setPos] = useState({ top: 0, left: 0 });
+    const ref = useRef(null);
+    const handleEnter = () => {
+      if (ref.current) {
+        const r = ref.current.getBoundingClientRect();
+        setPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+      }
+      setOpen(true);
+    };
+    return (
+      <span className="inline-flex items-center ml-0.5" onClick={e => e.stopPropagation()} onMouseEnter={handleEnter} onMouseLeave={() => setOpen(false)} ref={ref}>
+        <Info size={11} className="text-gray-400 hover:text-brand-400 cursor-pointer shrink-0 transition-colors" />
+        {open && (
+          <span style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '200px' }}
+            className="rounded-lg bg-gray-900 px-2.5 py-2 text-[11px] font-normal normal-case tracking-normal text-gray-100 shadow-2xl leading-[1.5] pointer-events-none border border-gray-700 whitespace-normal">
+            <span className="block font-semibold text-white mb-0.5">
+              {text.split('.')[0]}.
+            </span>
+            <span className="text-gray-400">{text.split('.').slice(1).join('.').trim()}</span>
+          </span>
+        )}
+      </span>
+    );
   }
 
   function SortTh({ col, children }) {
@@ -154,8 +211,12 @@ export default function AllClientsPage() {
       let av, bv;
       if (sortKey === 'name') { av = a.name?.toLowerCase() || ''; bv = b.name?.toLowerCase() || ''; }
       else if (sortKey === 'manager') { av = (a.shareholder_name || '').toLowerCase(); bv = (b.shareholder_name || '').toLowerCase(); }
+      else if (sortKey === 'deposited') { av = parseFloat(a.total_deposited || 0); bv = parseFloat(b.total_deposited || 0); }
       else if (sortKey === 'cash') { av = parseFloat(a.cash_balance || 0); bv = parseFloat(b.cash_balance || 0); }
       else if (sortKey === 'portfolio') { av = parseFloat(a.portfolio_value || 0); bv = parseFloat(b.portfolio_value || 0); }
+      else if (sortKey === 'unrealized_pnl') { av = parseFloat(a.unrealized_pnl || 0); bv = parseFloat(b.unrealized_pnl || 0); }
+      else if (sortKey === 'realized_pnl') { av = parseFloat(a.realized_pnl || 0); bv = parseFloat(b.realized_pnl || 0); }
+      else if (sortKey === 'total_pnl') { av = parseFloat(a.unrealized_pnl || 0) + parseFloat(a.realized_pnl || 0); bv = parseFloat(b.unrealized_pnl || 0) + parseFloat(b.realized_pnl || 0); }
       else if (sortKey === 'aum') { av = parseFloat(a.cash_balance || 0) + parseFloat(a.portfolio_value || 0); bv = parseFloat(b.cash_balance || 0) + parseFloat(b.portfolio_value || 0); }
       else if (sortKey === 'joined') { av = new Date(a.created_at); bv = new Date(b.created_at); }
       else { av = a[sortKey]; bv = b[sortKey]; }
@@ -280,6 +341,10 @@ export default function AllClientsPage() {
             >
               {managers.map(m => <option key={m} value={m}>{m === 'All' ? 'All Managers' : m}</option>)}
             </select>
+            <button onClick={exportExcel}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+              <FileSpreadsheet size={12} /> Excel
+            </button>
             <div className="relative">
               <button onClick={() => setColMenuOpen(o => !o)}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
@@ -323,8 +388,12 @@ export default function AllClientsPage() {
               <SortTh col="name">Client</SortTh>
               {visibleCols.has('manager') && <SortTh col="manager">Manager</SortTh>}
               {visibleCols.has('scheme') && <Th>Scheme</Th>}
+              {visibleCols.has('deposited') && <SortTh col="deposited">Amount Given</SortTh>}
               {visibleCols.has('cash') && <SortTh col="cash">Cash Balance</SortTh>}
               {visibleCols.has('portfolio') && <SortTh col="portfolio">Portfolio Value</SortTh>}
+              {visibleCols.has('unrealized_pnl') && <SortTh col="unrealized_pnl">Unrealized P/L<InfoTip text="Gain or loss on holdings still in the portfolio. Calculated as current market value minus the average buy price of open positions." /></SortTh>}
+              {visibleCols.has('realized_pnl') && <SortTh col="realized_pnl">Realized P/L<InfoTip text="Profit or loss locked in from sold positions. Calculated as sell proceeds minus the cost of shares that have been fully or partially exited." /></SortTh>}
+              {visibleCols.has('total_pnl') && <SortTh col="total_pnl">Total P/L<InfoTip text="Combined profit or loss across all activity. Sum of unrealized P/L (open holdings) and realized P/L (closed positions), giving a single view of overall performance." /></SortTh>}
               {visibleCols.has('aum') && <SortTh col="aum">Total AUM</SortTh>}
               {visibleCols.has('status') && <Th>Status</Th>}
               {visibleCols.has('joined') && <SortTh col="joined">Joined</SortTh>}
@@ -345,8 +414,12 @@ export default function AllClientsPage() {
                 {visibleCols.has('scheme') && <Td>
                   {(() => { const sc = c.scheme ? c.scheme.split(',').map(s => s.trim()).filter(Boolean) : []; return sc.length ? <span className="px-1.5 py-0.5 text-xs rounded bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300">{sc.map(s => s.replace(/_/g, ' ')).join(', ')}</span> : <span className="text-gray-400">—</span>; })()}
                 </Td>}
+                {visibleCols.has('deposited') && <Td>{fmt.currency(c.total_deposited)}</Td>}
                 {visibleCols.has('cash') && <Td>{fmt.currency(c.cash_balance)}</Td>}
                 {visibleCols.has('portfolio') && <Td>{fmt.currency(c.portfolio_value)}</Td>}
+                {visibleCols.has('unrealized_pnl') && (() => { const v = parseFloat(c.unrealized_pnl || 0); const base = parseFloat(c.portfolio_value || 0) - v; const pct = base !== 0 ? (v / Math.abs(base)) * 100 : null; const cls = v >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; return <Td><span className={`font-medium ${cls}`}>{v >= 0 ? '+' : ''}{fmt.currency(v)}</span>{pct !== null && <span className={`ml-1 text-xs ${cls}`}>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}</Td>; })()}
+                {visibleCols.has('realized_pnl') && (() => { const v = parseFloat(c.realized_pnl || 0); const base = parseFloat(c.total_deposited || 0); const pct = base !== 0 ? (v / base) * 100 : null; const cls = v >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; return <Td><span className={`font-medium ${cls}`}>{v >= 0 ? '+' : ''}{fmt.currency(v)}</span>{pct !== null && <span className={`ml-1 text-xs ${cls}`}>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}</Td>; })()}
+                {visibleCols.has('total_pnl') && (() => { const v = parseFloat(c.unrealized_pnl || 0) + parseFloat(c.realized_pnl || 0); const base = parseFloat(c.total_deposited || 0); const pct = base !== 0 ? (v / base) * 100 : null; const cls = v >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; return <Td><span className={`font-medium ${cls}`}>{v >= 0 ? '+' : ''}{fmt.currency(v)}</span>{pct !== null && <span className={`ml-1 text-xs ${cls}`}>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}</Td>; })()}
                 {visibleCols.has('aum') && <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>}
                 {visibleCols.has('status') && <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>}
                 {visibleCols.has('joined') && <Td className="text-gray-500 text-xs">{fmt.date(c.created_at)}</Td>}
@@ -357,8 +430,12 @@ export default function AllClientsPage() {
                 <Td className="text-gray-500">Showing {paged.length} of {sorted.length}</Td>
                 {visibleCols.has('manager') && <Td />}
                 {visibleCols.has('scheme') && <Td />}
+                {visibleCols.has('deposited') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(sorted.reduce((s, c) => s + parseFloat(c.total_deposited || 0), 0))}</Td>}
                 {visibleCols.has('cash') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash)}</Td>}
                 {visibleCols.has('portfolio') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalPortfolio)}</Td>}
+                {visibleCols.has('unrealized_pnl') && (() => { const t = sorted.reduce((s, c) => s + parseFloat(c.unrealized_pnl || 0), 0); return <Td className={`font-bold ${t >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{t >= 0 ? '+' : ''}{fmt.currency(t)}</Td>; })()}
+                {visibleCols.has('realized_pnl') && (() => { const t = sorted.reduce((s, c) => s + parseFloat(c.realized_pnl || 0), 0); return <Td className={`font-bold ${t >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{t >= 0 ? '+' : ''}{fmt.currency(t)}</Td>; })()}
+                {visibleCols.has('total_pnl') && (() => { const t = sorted.reduce((s, c) => s + parseFloat(c.unrealized_pnl || 0) + parseFloat(c.realized_pnl || 0), 0); return <Td className={`font-bold ${t >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{t >= 0 ? '+' : ''}{fmt.currency(t)}</Td>; })()}
                 {visibleCols.has('aum') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash + totalPortfolio)}</Td>}
                 {visibleCols.has('status') && <Td />}
                 {visibleCols.has('joined') && <Td />}

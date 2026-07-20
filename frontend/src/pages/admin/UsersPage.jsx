@@ -298,15 +298,20 @@ function UserTable({ users, tab, openEdit, openReset, openToggle, openDelete, op
               {isSuperAdmin && (
                 <Td>
                   <div className="flex items-center gap-1">
-                    <button onClick={() => openEdit(u)} className="p-1 text-gray-400 hover:text-brand-600" title="Edit"><Edit2 size={15} /></button>
-                    <button onClick={() => openReset(u)} className="p-1 text-gray-400 hover:text-orange-600" title="Reset password"><Key size={15} /></button>
-                    <button onClick={() => openToggle(u)} className="p-1 text-gray-400 hover:text-blue-600" title={u.is_active ? 'Deactivate' : 'Activate'}>
-                      {u.is_active ? <UserX size={15} /> : <UserCheck size={15} />}
-                    </button>
-                    {isClient && u.scheme && (
-                      <button onClick={() => openSchemes(u)} className="p-1 text-gray-400 hover:text-purple-600" title="Manage Schemes"><Layers size={15} /></button>
-                    )}
-                    <button onClick={() => openDelete(u)} className="p-1 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={15} /></button>
+                    {[
+                      { label: 'Edit', icon: <Edit2 size={15} />, color: 'hover:text-brand-600', onClick: () => openEdit(u) },
+                      { label: 'Reset Password', icon: <Key size={15} />, color: 'hover:text-orange-600', onClick: () => openReset(u) },
+                      { label: u.is_active ? 'Deactivate' : 'Activate', icon: u.is_active ? <UserX size={15} /> : <UserCheck size={15} />, color: 'hover:text-blue-600', onClick: () => openToggle(u) },
+                      ...(isClient && u.scheme ? [{ label: 'Manage Schemes', icon: <Layers size={15} />, color: 'hover:text-purple-600', onClick: () => openSchemes(u) }] : []),
+                      { label: 'Delete', icon: <Trash2 size={15} />, color: 'hover:text-red-600', onClick: () => openDelete(u) },
+                    ].map(({ label, icon, color, onClick }) => (
+                      <div key={label} className="relative group/tip">
+                        <button onClick={onClick} className={`p-1 text-gray-400 ${color} transition-colors`}>{icon}</button>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 whitespace-nowrap rounded-md bg-gray-900 dark:bg-gray-700 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 group-hover/tip:opacity-100 transition-opacity z-50 shadow-lg">
+                          {label}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </Td>
               )}

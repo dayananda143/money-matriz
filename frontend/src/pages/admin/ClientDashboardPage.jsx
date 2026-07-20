@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Search, ArrowLeft, Columns } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, ArrowLeft, Columns, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmt } from '../../utils/format';
@@ -147,6 +148,29 @@ function ClientsTable({ clients }) {
   // Reset to page 1 when clients or limit changes
   useMemo(() => setPage(1), [clients, limit]);
 
+  function exportExcel() {
+    const rows = filtered.map(c => {
+      const cash = parseFloat(c.cash_balance || 0);
+      const portfolio = parseFloat(c.portfolio_value || 0);
+      return {
+        Name: c.name,
+        Email: c.email,
+        Manager: c.shareholder_name || '',
+        Scheme: c.scheme || '',
+        'Amount Given': parseFloat(c.total_deposited || 0),
+        'Cash Balance': cash,
+        'Portfolio Value': portfolio,
+        'Unrealized P/L': parseFloat(c.unrealized_pnl || 0),
+        'Realized P/L': parseFloat(c.realized_pnl || 0),
+        'Total AUM': cash + portfolio,
+      };
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    XLSX.writeFile(wb, 'client_dashboard.xlsx');
+  }
+
   return (
     <div className="card">
       <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800 flex-wrap gap-2">
@@ -162,6 +186,10 @@ function ClientsTable({ clients }) {
               className="pl-6 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
             />
           </div>
+          <button onClick={exportExcel}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+            <FileSpreadsheet size={12} /> Excel
+          </button>
           <div className="relative">
               <button onClick={() => setColMenuOpen(o => !o)}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">

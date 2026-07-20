@@ -1,7 +1,31 @@
-import { useEffect, useState } from 'react';
-import { Plus, X, Check, Loader2 } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Plus, X, Check, Loader2, Info } from 'lucide-react';
 import api from '../../api';
 import { Skeleton, SkeletonPageHeader } from '../../components/ui/Skeleton';
+
+function InfoTip({ text }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const ref = useRef(null);
+  const handleEnter = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 8, left: r.left + r.width / 2 });
+    }
+    setOpen(true);
+  };
+  return (
+    <span className="inline-flex items-center ml-1" onMouseEnter={handleEnter} onMouseLeave={() => setOpen(false)} ref={ref}>
+      <Info size={13} className="text-gray-400 hover:text-brand-500 cursor-pointer transition-colors" />
+      {open && (
+        <span style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '220px' }}
+          className="rounded-lg bg-gray-900 px-2.5 py-2 text-[11px] font-normal text-gray-100 shadow-2xl leading-[1.5] pointer-events-none border border-gray-700 whitespace-normal">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function TagList({ label, description, configKey, items, onSaved }) {
   const [input, setInput] = useState('');
@@ -33,14 +57,16 @@ function TagList({ label, description, configKey, items, onSaved }) {
 
   return (
     <div className="card p-5">
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="font-semibold text-gray-900 dark:text-white">{label}</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center">
+          {label}
+          <InfoTip text={description} />
+        </h3>
         <span className="flex items-center gap-1 text-xs">
           {saving && <><Loader2 size={12} className="animate-spin text-gray-400" /><span className="text-gray-400">Saving...</span></>}
           {!saving && saved && <><Check size={12} className="text-green-500" /><span className="text-green-500">Saved</span></>}
         </span>
       </div>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{description}</p>
 
       <div className="flex flex-wrap gap-2 mb-4 min-h-[36px]">
         {items.map(item => (
@@ -111,7 +137,7 @@ export default function SettingsPage() {
 
       <TagList
         label="Roles"
-        description="Available roles when creating a user. Roles control permissions and access levels."
+        description="Available roles when creating a user. Roles control permissions and access levels across the platform."
         configKey="roles"
         items={config.roles || []}
         onSaved={handleSaved}
@@ -127,7 +153,7 @@ export default function SettingsPage() {
 
       <TagList
         label="Share Types"
-        description="Investment categories used in Shares (e.g. FD &amp; RD, Investment into stocks, Investment into company)."
+        description="Investment categories used in Shares (e.g. FD & RD, stocks, company investment). Shown as options when adding a share entry."
         configKey="share_types"
         items={config.share_types || []}
         onSaved={handleSaved}

@@ -44,7 +44,14 @@ router.get('/participants', authenticate, requireRole('admin', 'super_admin'), a
       SELECT u.id, u.name, u.email, u.user_type, u.is_active,
         p.default_amount,
         COUNT(sp.id)::int AS total_plans,
-        COALESCE(SUM(sp.amount), 0) AS total_invested
+        COALESCE(SUM(sp.amount), 0) AS total_invested,
+        COALESCE(SUM(sp.amount) FILTER (WHERE sp.sip_type = 'sip'), 0) AS sip_amount,
+        COALESCE(SUM(sp.amount) FILTER (WHERE sp.sip_type = 'additional'), 0) AS additional_amount,
+        COALESCE(SUM(sp.amount) FILTER (WHERE sp.sip_type = 'withdraw'), 0) AS withdraw_amount,
+        COALESCE(SUM(CASE WHEN sp.sip_type = 'withdraw' THEN -sp.amount ELSE sp.amount END), 0) AS net_total,
+        COALESCE(SUM(CASE WHEN sp.sip_type = 'withdraw' THEN -sp.amount ELSE sp.amount END), 0)
+          - COALESCE((SELECT SUM(h.quantity * h.avg_buy_price) FROM holdings h WHERE h.user_id = u.id AND h.quantity > 0), 0)
+          AS cash_on_hand
       FROM users u
       LEFT JOIN sip_participants p ON p.shareholder_id = u.id
       LEFT JOIN sip_plans sp ON sp.shareholder_id = u.id
