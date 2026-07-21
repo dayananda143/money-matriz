@@ -280,6 +280,23 @@ router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
         quantity = $3, avg_buy_price = $4, brokerage = $5, updated_at = NOW()
       RETURNING *
     `, [req.params.userId, req.params.stockId, quantity, avg_buy_price, brokerage ?? 0]);
+
+    // Keep the transaction ledger in sync: if this user has exactly one buy
+    // transaction for this stock, adjust it to match the corrected holding
+    // so the two don't silently drift apart. With multiple lots it's
+    // ambiguous which one to adjust, so those are left untouched.
+    const { rows: buyTxns } = await query(
+      `SELECT id FROM transactions WHERE user_id = $1 AND stock_id = $2 AND type = 'buy'`,
+      [req.params.userId, req.params.stockId]
+    );
+    if (buyTxns.length === 1) {
+      const total = parseFloat((parseFloat(quantity) * parseFloat(avg_buy_price)).toFixed(2));
+      await query(
+        `UPDATE transactions SET quantity = $1, price = $2, total = $3 WHERE id = $4`,
+        [quantity, avg_buy_price, total, buyTxns[0].id]
+      );
+    }
+
     if (buy_date) {
       const updateRes = await query(`
         UPDATE transactions SET executed_at = $1
