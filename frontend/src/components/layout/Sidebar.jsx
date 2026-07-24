@@ -6,7 +6,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import api from '../../api';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing
+  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing, Search
 } from 'lucide-react';
 
 const navConfig = {
@@ -38,6 +38,7 @@ const navConfig = {
     { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
     { to: '/company', icon: Building2, label: 'Company' },
     { to: '/admin/stocks', icon: BarChart2, label: 'Stocks' },
+    { to: '/admin/stock-analysis', icon: Search, label: 'Stock Analysis' },
     { to: '/admin/relationships', icon: Link2, label: 'Relationships' },
     { to: '/admin/brokerage-accounts', icon: Briefcase, label: 'Brokerage Accounts' },
     { to: '/sip', icon: CalendarClock, label: 'SIP Plans' },

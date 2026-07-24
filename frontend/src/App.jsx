@@ -42,6 +42,7 @@ import OverviewPage from './pages/admin/OverviewPage';
 import UsersPage from './pages/admin/UsersPage';
 import StocksPage from './pages/admin/StocksPage';
 import StockDetailPage from './pages/admin/StockDetailPage';
+import StockAnalysisPage from './pages/admin/StockAnalysisPage';
 import RelationshipsPage from './pages/admin/RelationshipsPage';
 import ClientDashboardPage from './pages/admin/ClientDashboardPage';
 import SettingsPage from './pages/admin/SettingsPage';
@@ -115,6 +116,7 @@ function ProtectedRoutes() {
         {isAdmin && <Route path="/admin/users" element={<UsersPage />} />}
         {isAdmin && <Route path="/admin/stocks" element={<StocksPage />} />}
         {isAdmin && <Route path="/admin/stocks/:id" element={<StockDetailPage />} />}
+        {isAdmin && <Route path="/admin/stock-analysis" element={<StockAnalysisPage />} />}
         {isAdmin && <Route path="/admin/brokerage-accounts" element={<BrokerageAccountsPage />} />}
         {isAdmin && <Route path="/sip" element={<SIPTilesPage />} />}
         {(isAdmin || isShareholder) && <Route path="/sip/:shareholderId" element={<SIPPage />} />}

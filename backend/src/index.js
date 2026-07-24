@@ -22,6 +22,8 @@ app.use('/api/sip', require('./routes/sip'));
 app.use('/api/trade-requests', require('./routes/trade-requests'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/stock-alerts', require('./routes/stock-alerts'));
+app.use('/api/stock-analysis', require('./routes/stockAnalysis'));
+app.use('/api/gate-analyses', require('./routes/gateAnalyses'));
 const notificationsModule = require('./routes/notifications');
 app.use('/api/notifications', notificationsModule.router);
 
