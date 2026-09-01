@@ -28,6 +28,7 @@ const navConfig = {
   ],
   shareholder_extra: [
     { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
+    { to: '/admin/stocks', icon: BarChart2, label: 'Stocks' },
     { to: '/sip', icon: CalendarClock, label: 'SIP Plans' },
     { to: '/alerts', icon: BellRing, label: 'Alerts' },
   ],

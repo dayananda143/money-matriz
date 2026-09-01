@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const { query, pool } = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, requireRoleOrShareholder } = require('../middleware/auth');
 
 const YahooFinance = require('yahoo-finance2').default;
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -64,7 +64,7 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET all stocks including inactive (admin)
-router.get('/all', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/all', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT s.*,
@@ -212,7 +212,7 @@ router.get('/brokerage-accounts/holder/:userId', authenticate, requireRole('admi
 });
 
 // GET holders of a specific stock (who invested and how much)
-router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/holders', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT
@@ -278,7 +278,7 @@ router.get('/:id/holders', authenticate, requireRole('admin', 'super_admin'), as
 });
 
 // GET individual investments (buy transactions) for a stock — one row per investment
-router.get('/:id/investments', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/investments', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT
@@ -340,8 +340,8 @@ router.get('/:id/investments', authenticate, requireRole('admin', 'super_admin')
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// GET single stock by id (admin)
-router.get('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+// GET single stock by id (admin, and shareholders read-only)
+router.get('/:id', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
       SELECT s.*,
@@ -444,7 +444,7 @@ router.put('/:id', authenticate, requireRole('admin', 'super_admin'), async (req
 });
 
 // GET all sell transactions for a stock (optionally filtered by group)
-router.get('/:id/sell-transactions', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/sell-transactions', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { group_id } = req.query;
     const params = [req.params.id];
@@ -543,7 +543,7 @@ router.post('/:id/transfer', authenticate, requireRole('admin', 'super_admin'), 
 });
 
 // GET transaction history for a specific holder in a stock
-router.get('/:id/holders/:holderId/transactions', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/holders/:holderId/transactions', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { group_id } = req.query;
     let sql, params;
@@ -699,7 +699,7 @@ router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'su
 });
 
 // GET brokerage transactions for a stock
-router.get('/:id/brokerage', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/brokerage', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { group_id } = req.query;
     let q, params;
@@ -769,7 +769,7 @@ router.put('/:id/holder', authenticate, requireRole('admin', 'super_admin'), asy
 });
 
 // GET groups for a stock
-router.get('/:id/groups', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+router.get('/:id/groups', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(
       `SELECT g.*, COUNT(h.id)::int AS holder_count,

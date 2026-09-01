@@ -32,4 +32,16 @@ function requireType(...types) {
   };
 }
 
-module.exports = { authenticate, requireRole, requireType };
+// Allows the given admin roles through, OR any shareholder (user_type === 'shareholder'),
+// regardless of their role. Used for read-only endpoints that shareholders should be able
+// to view but not mutate — clients are NOT granted access by this.
+function requireRoleOrShareholder(...adminRoles) {
+  return (req, res, next) => {
+    if (adminRoles.includes(req.user.role) || req.user.user_type === 'shareholder') {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden' });
+  };
+}
+
+module.exports = { authenticate, requireRole, requireType, requireRoleOrShareholder };

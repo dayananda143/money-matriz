@@ -114,8 +114,8 @@ function ProtectedRoutes() {
 
         {/* Admin routes */}
         {isAdmin && <Route path="/admin/users" element={<UsersPage />} />}
-        {isAdmin && <Route path="/admin/stocks" element={<StocksPage />} />}
-        {isAdmin && <Route path="/admin/stocks/:id" element={<StockDetailPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/admin/stocks" element={<StocksPage />} />}
+        {(isAdmin || isShareholder) && <Route path="/admin/stocks/:id" element={<StockDetailPage />} />}
         {isAdmin && <Route path="/admin/stock-analysis" element={<StockAnalysisPage />} />}
         {isAdmin && <Route path="/admin/brokerage-accounts" element={<BrokerageAccountsPage />} />}
         {isAdmin && <Route path="/sip" element={<SIPTilesPage />} />}

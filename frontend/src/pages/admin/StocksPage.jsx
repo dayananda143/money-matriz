@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, ArrowLeftRight, Columns, BellRing } from 'lucide-react';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonTable } from '../../components/ui/Skeleton';
@@ -876,6 +877,8 @@ const holdingPeriod = (startStr, endStr) => {
 };
 
 export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast, fullPage = false }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [holders, setHolders] = useState([]);
   const [investments, setInvestments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1242,23 +1245,28 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   >
                     {g.label}{g.holder_name ? ` · ${g.holder_name.split(' ')[0]}` : ''}
                   </button>
-                  <button onClick={() => setDeleteGroupId(g.id)} className="text-gray-300 hover:text-red-500" title="Delete group">
-                    <X size={11} />
-                  </button>
+                  {isAdmin && (
+                    <button onClick={() => setDeleteGroupId(g.id)} className="text-gray-300 hover:text-red-500" title="Delete group">
+                      <X size={11} />
+                    </button>
+                  )}
                 </div>
               ))}
-              <button
-                onClick={addGroup}
-                className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 hover:text-brand-600 font-medium transition-colors"
-              >
-                + New Transaction
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={addGroup}
+                  className="px-3 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 hover:text-brand-600 font-medium transition-colors"
+                >
+                  + New Transaction
+                </button>
+              )}
             </div>
             {activeGroupId && <div className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">Stockholder</span>
                 <select
                   value={groups.find(g => g.id === activeGroupId)?.holder_id || ''}
+                  disabled={!isAdmin}
                   onChange={async e => {
                     const val = e.target.value;
                     try {
@@ -1266,7 +1274,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       setGroups(prev => prev.map(g => g.id === activeGroupId ? { ...g, holder_id: val ? parseInt(val) : null, holder_name: allUsers.find(u => u.id === parseInt(val))?.name || null } : g));
                     } catch(err) { alert(err.message); }
                   }}
-                  className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-1"
+                  className="text-xs rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-1 disabled:opacity-60"
                 >
                   <option value="">— None —</option>
                   {allUsers
@@ -1306,22 +1314,28 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       ) : (
                         <>
                           <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{fmt.currency(parseFloat(t.amount))}</span>
-                          <button onClick={() => { setEditBrokerageId(t.id); setEditBrokerageAmount(parseFloat(t.amount).toFixed(2)); }} className="text-gray-300 hover:text-brand-500 ml-0.5"><Pencil size={10} /></button>
-                          <button onClick={() => setDeleteBrokerageId(t.id)} className="text-gray-300 hover:text-red-500"><X size={11} /></button>
+                          {isAdmin && (
+                            <>
+                              <button onClick={() => { setEditBrokerageId(t.id); setEditBrokerageAmount(parseFloat(t.amount).toFixed(2)); }} className="text-gray-300 hover:text-brand-500 ml-0.5"><Pencil size={10} /></button>
+                              <button onClick={() => setDeleteBrokerageId(t.id)} className="text-gray-300 hover:text-red-500"><X size={11} /></button>
+                            </>
+                          )}
                         </>
                       )}
                     </div>
                   ))}
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number" min="0" step="any" placeholder="Amount"
-                      value={newBrokerage}
-                      onChange={e => setNewBrokerage(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && addBrokerage()}
-                      className="w-24 px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
-                    />
-                    <button onClick={addBrokerage} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded">+ Add</button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number" min="0" step="any" placeholder="Amount"
+                        value={newBrokerage}
+                        onChange={e => setNewBrokerage(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && addBrokerage()}
+                        className="w-24 px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                      <button onClick={addBrokerage} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded">+ Add</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>}
@@ -1362,7 +1376,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   </>
                 )}
             </div>
-            {activeGroupId && <div className="flex gap-2">
+            {activeGroupId && isAdmin && <div className="flex gap-2">
               <button onClick={() => setSellAllOpen(true)} className="text-xs px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded flex items-center gap-1">
                 <TrendingDown size={12} /> {allExited ? 'Edit Sell' : 'Sell All Shares'}
               </button>
@@ -1423,7 +1437,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                           checked={displayed.length > 0 && displayed.every(h => h.investment_settled)}
                           ref={el => { if (el) el.indeterminate = displayed.some(h => h.investment_settled) && !displayed.every(h => h.investment_settled); }}
                           onChange={e => bulkToggleSettled('investment_settled', e.target.checked)}
-                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer"
+                          disabled={!isAdmin}
+                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                           title="Select all investment settled"
                         />
                         Inv. Settled
@@ -1435,7 +1450,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                           checked={displayed.length > 0 && displayed.every(h => h.pnl_settled)}
                           ref={el => { if (el) el.indeterminate = displayed.some(h => h.pnl_settled) && !displayed.every(h => h.pnl_settled); }}
                           onChange={e => bulkToggleSettled('pnl_settled', e.target.checked)}
-                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer"
+                          disabled={!isAdmin}
+                          className="w-4 h-4 rounded accent-brand-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                           title="Select all P&L settled"
                         />
                         P&amp;L Settled
@@ -1505,12 +1521,12 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                                 onMouseLeave={() => setOpenMenuId(null)}
                                 onClick={e => e.stopPropagation()}
                               >
-                                {activeGroupId && h.status === 'active' && (
+                                {isAdmin && activeGroupId && h.status === 'active' && (
                                   <button onClick={() => { setSellHolder({ ...holder, group_id: h.group_id, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) }); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-orange-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <TrendingDown size={13} /> Sell Shares
                                   </button>
                                 )}
-                                {activeGroupId && h.status === 'active' && (
+                                {isAdmin && activeGroupId && h.status === 'active' && (
                                   <button onClick={() => { setTransferHolder({ ...holder, group_id: h.group_id, quantity: Math.min(parseFloat(h.remaining_quantity ?? h.quantity), parseFloat(holder.quantity)) }); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <ArrowLeftRight size={13} /> Transfer Shares
                                   </button>
@@ -1518,12 +1534,12 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                                 <button onClick={() => { openTxnHistory(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                   <History size={13} /> History
                                 </button>
-                                {activeGroupId && (
+                                {isAdmin && activeGroupId && (
                                   <button onClick={() => { setEditHolder(holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <Pencil size={13} /> Edit
                                   </button>
                                 )}
-                                {activeGroupId && (
+                                {isAdmin && activeGroupId && (
                                   <button onClick={() => { setDeleteHolder(h.txn_id ? { ...holder, txn_id: h.txn_id } : holder); setOpenMenuId(null); }} className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-100 dark:hover:bg-gray-500 flex items-center gap-2">
                                     <Trash2 size={13} /> Delete
                                   </button>
@@ -1604,16 +1620,18 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <Td>
                         <input type="checkbox"
                           checked={!!h.investment_settled}
+                          disabled={!isAdmin}
                           onChange={e => { e.stopPropagation(); toggleInvestorSettled(h.txn_id, 'investment_settled', e.target.checked); }}
                           onClick={e => e.stopPropagation()}
-                          className="w-4 h-4 rounded accent-brand-600" />
+                          className="w-4 h-4 rounded accent-brand-600 disabled:cursor-not-allowed disabled:opacity-60" />
                       </Td>
                       <Td>
                         <input type="checkbox"
                           checked={!!h.pnl_settled}
+                          disabled={!isAdmin}
                           onChange={e => { e.stopPropagation(); toggleInvestorSettled(h.txn_id, 'pnl_settled', e.target.checked); }}
                           onClick={e => e.stopPropagation()}
-                          className="w-4 h-4 rounded accent-brand-600" />
+                          className="w-4 h-4 rounded accent-brand-600 disabled:cursor-not-allowed disabled:opacity-60" />
                       </Td>
                       {!activeGroupId && (
                         <Td className={dim}>
@@ -2141,7 +2159,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{stock?.symbol} · {stock?.name}</h1>
             <p className="text-sm text-gray-500">{stock?.sector || 'Investors'}</p>
           </div>
-          {stock && (
+          {stock && isAdmin && (
             <button onClick={() => onEdit(stock)} className="ml-auto p-1.5 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors" title="Edit stock">
               <Edit2 size={16} />
             </button>
@@ -2156,7 +2174,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   return (
     <>
       <Modal open={open} onClose={onClose} title={stock ? `Investors — ${stock.symbol} · ${stock.name}` : ''} size="xl"
-        headerAction={stock && (
+        headerAction={stock && isAdmin && (
           <button onClick={() => { onClose(); onEdit(stock); }} className="p-1.5 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-colors" title="Edit stock">
             <Edit2 size={16} />
           </button>
@@ -2348,6 +2366,8 @@ function StockAlertModal({ stock, open, onClose }) {
 }
 
 export default function StocksPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
@@ -2518,9 +2538,11 @@ export default function StocksPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Stocks</h1>
           <p className="text-gray-500 text-sm mt-1">Manage company-traded securities and view investors</p>
         </div>
-        <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Add Stock
-        </button>
+        {isAdmin && (
+          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus size={16} /> Add Stock
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -2603,13 +2625,15 @@ export default function StocksPage() {
                     <Td onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         <div className="flex-shrink-0">
+                          {isAdmin && (
                           <button
                             onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const flip = window.innerHeight - r.bottom < 160; setStockMenuPos({ top: flip ? r.top - 160 : r.bottom, left: r.left }); setStockMenuId(stockMenuId === s.id ? null : s.id); }}
                             className="p-1 text-gray-400 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-600 rounded"
                           >
                             <MoreVertical size={14} />
                           </button>
-                          {stockMenuId === s.id && (
+                          )}
+                          {isAdmin && stockMenuId === s.id && (
                             <div
                               style={{ position: 'fixed', top: stockMenuPos.top, left: stockMenuPos.left, zIndex: 9999 }}
                               className="w-44 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg shadow-xl dark:shadow-black/60 py-1"
