@@ -1376,18 +1376,22 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   </>
                 )}
             </div>
-            {activeGroupId && isAdmin && <div className="flex gap-2">
-              <button onClick={() => setSellAllOpen(true)} className="text-xs px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded flex items-center gap-1">
-                <TrendingDown size={12} /> {allExited ? 'Edit Sell' : 'Sell All Shares'}
-              </button>
-              {activeInvRows && activeInvRows.length > 0 && (
+            {activeGroupId && <div className="flex gap-2">
+              {isAdmin && (
+                <button onClick={() => setSellAllOpen(true)} className="text-xs px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded flex items-center gap-1">
+                  <TrendingDown size={12} /> {allExited ? 'Edit Sell' : 'Sell All Shares'}
+                </button>
+              )}
+              {isAdmin && activeInvRows && activeInvRows.length > 0 && (
                 <button onClick={() => setEditBuyOpen(true)} className="text-xs px-2 py-0.5 bg-blue-500 hover:bg-blue-600 text-white rounded flex items-center gap-1">
                   <Pencil size={12} /> Edit Buy
                 </button>
               )}
-              <button onClick={() => setAddOpen(true)} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded flex items-center gap-1">
-                <ShoppingCart size={12} /> Add Investment
-              </button>
+              {isAdmin && (
+                <button onClick={() => setAddOpen(true)} className="text-xs px-2 py-0.5 bg-brand-600 hover:bg-brand-700 text-white rounded flex items-center gap-1">
+                  <ShoppingCart size={12} /> Add Investment
+                </button>
+              )}
               {allExited && (
                 <button onClick={() => setSettleSummaryOpen(true)} className="text-xs px-2 py-0.5 bg-green-600 hover:bg-green-700 text-white rounded flex items-center gap-1">
                   Settlement Summary
