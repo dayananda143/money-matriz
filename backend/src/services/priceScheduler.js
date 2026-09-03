@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { query } = require('../db');
+const { tracked } = require('./cronTracker');
 
 const YahooFinance = require('yahoo-finance2').default;
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
@@ -210,14 +211,12 @@ function start() {
   // Run every 15 minutes — guard with isMarketOpen to skip weekends/off hours
   cron.schedule('*/15 * * * *', async () => {
     if (!isMarketOpen()) return;
-    try {
+    await tracked('Price refresh', async () => {
       await refreshAllPrices();
       if (isExitedRefreshTime()) {
         await refreshExitedPrices();
       }
-    } catch (err) {
-      console.error('[PriceScheduler] Unexpected error:', err.message);
-    }
+    });
   });
 
   console.log('[PriceScheduler] Scheduled — active/held stocks every 15 min, exited stocks at market open & close, Mon–Fri (9:15–15:30 IST)');

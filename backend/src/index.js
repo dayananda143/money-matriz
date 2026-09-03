@@ -29,6 +29,15 @@ app.use('/api/notifications', notificationsModule.router);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 
+// Internal-only: app-stats dashboard polls this for cron job last-run status
+app.get('/api/internal/cron-status', (req, res) => {
+  if (req.ip !== '127.0.0.1' && req.ip !== '::1' && req.ip !== '::ffff:127.0.0.1') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { getCronStatus } = require('./services/cronTracker');
+  res.json(getCronStatus());
+});
+
 // HTTP server + Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
