@@ -1707,11 +1707,18 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             const tax = adjNetProfit > 0 ? adjNetProfit * taxRate : 0;
             const pat = adjNetProfit > 0 ? adjNetProfit - tax : 0;
             const shareholderTaking = pat * 0.30;
-            const companyTaking = pat * 0.70 + tax; // company gets 70% of PAT + tax
-            const settlement = realizedPnl >= 0
-              ? totalInvested + shareholderTaking
-              : totalInvested + realizedPnl - brokerage;
-            return { ...u, totalInvested, totalBuyQty, sellAmount, brokerage, realizedPnl, days, tax, pat, shareholderTaking, companyTaking, settlement };
+            const isLoss = realizedPnl < 0;
+            // On a loss, the shareholder bears only 30% of the loss and the company covers the
+            // other 70% (a payout, shown as a negative Company Share). Brokerage is unaffected by
+            // this split — the shareholder still bears 100% of it.
+            const loss = isLoss ? -realizedPnl : 0;
+            const shareholderLossShare = loss * 0.30;
+            const companyLossShare = loss * 0.70;
+            const companyTaking = isLoss ? -companyLossShare : pat * 0.70 + tax; // company gets 70% of PAT + tax, or covers 70% of loss
+            const settlement = isLoss
+              ? totalInvested - shareholderLossShare - brokerage
+              : totalInvested + shareholderTaking;
+            return { ...u, totalInvested, totalBuyQty, sellAmount, brokerage, realizedPnl, days, tax, pat, shareholderTaking, isLoss, shareholderLossShare, companyLossShare, companyTaking, settlement };
           });
 
           const totalInvestedAll = userRows.reduce((s, r) => s + r.totalInvested, 0);
@@ -1746,18 +1753,37 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                             <span className="text-gray-500">Realized P/L</span>
                             <span className={`font-medium ${pnlColor(u.realizedPnl)}`}>{pnlSign(u.realizedPnl)}{fmt.currency(u.realizedPnl)}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Tax <span className="text-gray-400">({u.days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span></span>
-                            <span className="font-medium text-red-500">−{fmt.currency(u.tax)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Your Share <span className="text-gray-400">(30% of PAT)</span></span>
-                            <span className="font-medium text-blue-600">+{fmt.currency(u.shareholderTaking)}</span>
-                          </div>
-                          <div className="flex justify-between border-t border-gray-100 dark:border-gray-700 pt-1.5">
-                            <span className="font-semibold text-gray-700 dark:text-gray-300">Company Share <span className="text-gray-400">(70% of PAT + tax)</span></span>
-                            <span className="font-semibold text-purple-600">{fmt.currency(u.companyTaking)}</span>
-                          </div>
+                          {u.isLoss ? (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Brokerage</span>
+                                <span className="font-medium text-red-500">−{fmt.currency(u.brokerage)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Your Share of Loss <span className="text-gray-400">(30%)</span></span>
+                                <span className="font-medium text-red-500">−{fmt.currency(u.shareholderLossShare)}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-gray-100 dark:border-gray-700 pt-1.5">
+                                <span className="font-semibold text-gray-700 dark:text-gray-300">Company Share <span className="text-gray-400">(70% of Loss)</span></span>
+                                <span className="font-semibold text-purple-600">{fmt.currency(u.companyTaking)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Tax <span className="text-gray-400">({u.days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span></span>
+                                <span className="font-medium text-red-500">−{fmt.currency(u.tax)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">Your Share <span className="text-gray-400">(30% of PAT)</span></span>
+                                <span className="font-medium text-blue-600">+{fmt.currency(u.shareholderTaking)}</span>
+                              </div>
+                              <div className="flex justify-between border-t border-gray-100 dark:border-gray-700 pt-1.5">
+                                <span className="font-semibold text-gray-700 dark:text-gray-300">Company Share <span className="text-gray-400">(70% of PAT + tax)</span></span>
+                                <span className="font-semibold text-purple-600">{fmt.currency(u.companyTaking)}</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
