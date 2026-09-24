@@ -14,9 +14,13 @@ export const DETAIL_FIELDS = [
   { key: 'buyDate', label: 'Buy Date (YYYY-MM-DD)', cell: 'B5' },
   { key: 'brokerage', label: 'Brokerage', cell: 'B6' },
   { key: 'buyPrice', label: 'Buy Price', cell: 'B7', required: true },
-  { key: 'notes', label: 'Notes', cell: 'B8' },
+  { key: 'marketCapCategory', label: 'Market Cap (only if new — auto-estimated if blank)', cell: 'B8' },
+  { key: 'notes', label: 'Notes', cell: 'B9' },
 ];
 const ACCOUNT_HOLDER_NAME_CELL = 'B4'; // auto-filled, display-only
+
+// Same buckets the manual Add Stock form offers.
+export const CAP_CATEGORIES = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap'];
 
 // Columns for the per-investor table below the details block. The "(auto)" columns
 // are display-only — formula-filled from the email next to them, purely so you can
@@ -30,7 +34,7 @@ export const IMPORT_COLUMNS = [
   { key: 'amount', header: 'Amount (₹)', width: 14 },
 ];
 
-export const TABLE_HEADER_ROW = 10; // row the investor-table header sits on
+export const TABLE_HEADER_ROW = 11; // row the investor-table header sits on
 export const TABLE_FIRST_DATA_ROW = TABLE_HEADER_ROW + 1;
 
 // 1-based column index -> spreadsheet letter (A, B, ..., Z, AA, ...)
@@ -115,6 +119,14 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     formulae: [new Date(2000, 0, 1)],
     showErrorMessage: true, errorStyle: 'warning',
     error: 'That doesn\'t look like a valid date.',
+  };
+  // Market Cap — inline dropdown of the same buckets the Add Stock form offers.
+  // Left blank, it's estimated from Yahoo's market cap during Preview.
+  sheet.getCell('B8').dataValidation = {
+    type: 'list', allowBlank: true,
+    formulae: [`"${CAP_CATEGORIES.join(',')}"`],
+    showErrorMessage: true, errorStyle: 'warning',
+    error: `Pick one of: ${CAP_CATEGORIES.join(', ')} — or leave blank to auto-estimate.`,
   };
   const holderNameCell = sheet.getCell(ACCOUNT_HOLDER_NAME_CELL);
   holderNameCell.value = { formula: `IFERROR(VLOOKUP(B3,${USERS_LOOKUP_RANGE},2,FALSE),"")` };

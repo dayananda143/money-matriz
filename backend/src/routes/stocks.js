@@ -40,6 +40,8 @@ async function fetchYahooPrice(symbol) {
   return null;
 }
 
+const CAP_CATEGORIES = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap'];
+
 // Rough INR market-cap thresholds for the same buckets the manual "Add Stock" form
 // offers (Large/Mid/Small/Micro Cap). SEBI's own classification is rank-based (top
 // 100 = large cap, next 150 = mid cap, rest = small cap), which we don't have data
@@ -868,7 +870,7 @@ async function nextTransactionLabel(symbol) {
 async function resolveBulkImportRow(row, label) {
   const {
     investorEmail, stockSymbol, stockName, sector, currentPrice,
-    accountHolderEmail, amount, buyPrice, buyDate, brokerage, notes,
+    accountHolderEmail, amount, buyPrice, buyDate, brokerage, marketCapCategory, notes,
   } = row;
 
   const amt = parseFloat(amount);
@@ -878,6 +880,13 @@ async function resolveBulkImportRow(row, label) {
   if (!stockSymbol) return { status: 'error', error: 'Stock symbol required' };
   if (!(amt > 0)) return { status: 'error', error: 'Amount must be greater than 0' };
   if (!(price > 0)) return { status: 'error', error: 'Buy price must be greater than 0' };
+
+  // The sheet's Market Cap dropdown is warning-style (a typed value still saves),
+  // so guard against anything outside the known buckets reaching the DB.
+  const capInput = marketCapCategory ? String(marketCapCategory).trim() : '';
+  if (capInput && !CAP_CATEGORIES.includes(capInput)) {
+    return { status: 'error', error: `Market Cap must be one of: ${CAP_CATEGORIES.join(', ')}` };
+  }
   // Quantity is derived from Amount ÷ Buy Price, same as the manual Add Investment
   // flow, so the exact rupee amount is preserved rather than drifting from a
   // rounded quantity.
@@ -902,6 +911,7 @@ async function resolveBulkImportRow(row, label) {
   let resolvedSector = sector ? String(sector).trim() : null;
   let resolvedCurrentPrice = currentPrice != null && currentPrice !== '' ? parseFloat(currentPrice) : null;
   let resolvedMarketCapCategory = null;
+  let marketCapEstimated = false;
 
   if (!stock) {
     // New symbol — confirm it's a real, tradeable symbol via Yahoo Finance before
@@ -916,7 +926,9 @@ async function resolveBulkImportRow(row, label) {
     if (!resolvedStockName) resolvedStockName = yahoo.name || null;
     if (!resolvedSector) resolvedSector = yahoo.sector || null;
     if (resolvedCurrentPrice == null) resolvedCurrentPrice = yahoo.price ?? null;
-    resolvedMarketCapCategory = classifyMarketCap(yahoo.marketCap);
+    // A value picked in the sheet wins; otherwise estimate it from Yahoo.
+    resolvedMarketCapCategory = capInput || classifyMarketCap(yahoo.marketCap);
+    marketCapEstimated = !capInput && !!resolvedMarketCapCategory;
     if (!resolvedStockName) {
       return { status: 'error', error: 'Stock Name required for new symbol (Yahoo Finance did not return one)' };
     }
@@ -926,6 +938,7 @@ async function resolveBulkImportRow(row, label) {
     resolvedSector = stock.sector || null;
     resolvedMarketCapCategory = stock.market_cap_category || null;
     if (stockName || sector || currentPrice) ignoredStockFields = ['stockName', 'sector', 'currentPrice'];
+    if (capInput) ignoredStockFields.push('marketCapCategory');
   }
 
   let groupAction, group = null;
@@ -952,6 +965,7 @@ async function resolveBulkImportRow(row, label) {
       stockName: stockAction === 'new' ? resolvedStockName : undefined,
       sector: resolvedSector,
       marketCapCategory: resolvedMarketCapCategory,
+      marketCapEstimated,
       quantity: qty,
     },
     resolved: {

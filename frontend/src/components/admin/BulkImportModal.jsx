@@ -90,6 +90,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
           buyPrice: details.buyPrice,
           buyDate: details.buyDate,
           brokerage: details.brokerage,
+          marketCapCategory: details.marketCapCategory,
           notes: details.notes,
         }));
 
@@ -198,7 +199,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                 <p className="text-gray-400">Market Cap</p>
                 <p className="font-medium text-gray-800 dark:text-gray-200">
                   {firstPlan?.marketCapCategory
-                    ? <>{firstPlan.marketCapCategory}{firstPlan.stockAction === 'new' && <span className="text-gray-400 font-normal"> (estimated)</span>}</>
+                    ? <>{firstPlan.marketCapCategory}{firstPlan.marketCapEstimated && <span className="text-gray-400 font-normal"> (estimated)</span>}</>
                     : '—'}
                 </p>
               </div>
