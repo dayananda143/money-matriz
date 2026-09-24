@@ -191,6 +191,18 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                 </p>
               </div>
               <div>
+                <p className="text-gray-400">Sector</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">{firstPlan?.sector || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-400">Market Cap</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">
+                  {firstPlan?.marketCapCategory
+                    ? <>{firstPlan.marketCapCategory}{firstPlan.stockAction === 'new' && <span className="text-gray-400 font-normal"> (estimated)</span>}</>
+                    : '—'}
+                </p>
+              </div>
+              <div>
                 <p className="text-gray-400">Account Holder</p>
                 <p className="font-medium text-gray-800 dark:text-gray-200">{firstPlan?.accountHolderName || firstInput?.accountHolderEmail || '—'}</p>
               </div>

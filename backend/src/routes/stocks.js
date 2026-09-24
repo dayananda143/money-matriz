@@ -31,12 +31,26 @@ async function fetchYahooPrice(symbol) {
           price: q.regularMarketPrice,
           name: q.longName || q.shortName || null,
           sector,
+          marketCap: q.marketCap ?? null,
           fetched_symbol: sym,
         };
       }
     } catch {}
   }
   return null;
+}
+
+// Rough INR market-cap thresholds for the same buckets the manual "Add Stock" form
+// offers (Large/Mid/Small/Micro Cap). SEBI's own classification is rank-based (top
+// 100 = large cap, next 150 = mid cap, rest = small cap), which we don't have data
+// for, so this is a fixed-threshold approximation — good enough to pre-fill, but
+// still editable on the stock afterwards like any manually-entered value.
+function classifyMarketCap(marketCap) {
+  if (!marketCap || marketCap <= 0) return null;
+  if (marketCap >= 200000000000) return 'Large Cap'; // ≥ ₹20,000 Cr
+  if (marketCap >= 50000000000) return 'Mid Cap';     // ≥ ₹5,000 Cr
+  if (marketCap >= 5000000000) return 'Small Cap';    // ≥ ₹500 Cr
+  return 'Micro Cap';
 }
 
 // GET stock info from Yahoo Finance by symbol (for new stock lookup)
@@ -887,10 +901,14 @@ async function resolveBulkImportRow(row, label) {
   let resolvedStockName = stockName ? String(stockName).trim() : null;
   let resolvedSector = sector ? String(sector).trim() : null;
   let resolvedCurrentPrice = currentPrice != null && currentPrice !== '' ? parseFloat(currentPrice) : null;
+  let resolvedMarketCapCategory = null;
 
   if (!stock) {
     // New symbol — confirm it's a real, tradeable symbol via Yahoo Finance before
-    // allowing it to be created, and auto-fill any name/sector/price left blank.
+    // allowing it to be created, and auto-fill any name/sector/price/market-cap
+    // left blank. Market cap category is a rough estimate from Yahoo's raw market
+    // cap (see classifyMarketCap) — same buckets as the manual Add Stock form's
+    // dropdown, and just as editable afterwards.
     const yahoo = await fetchYahooPrice(symbol);
     if (!yahoo) {
       return { status: 'error', error: `Stock Symbol "${symbol}" not recognized by Yahoo Finance — check the symbol` };
@@ -898,12 +916,15 @@ async function resolveBulkImportRow(row, label) {
     if (!resolvedStockName) resolvedStockName = yahoo.name || null;
     if (!resolvedSector) resolvedSector = yahoo.sector || null;
     if (resolvedCurrentPrice == null) resolvedCurrentPrice = yahoo.price ?? null;
+    resolvedMarketCapCategory = classifyMarketCap(yahoo.marketCap);
     if (!resolvedStockName) {
       return { status: 'error', error: 'Stock Name required for new symbol (Yahoo Finance did not return one)' };
     }
     stockAction = 'new';
   } else {
     stockAction = 'existing';
+    resolvedSector = stock.sector || null;
+    resolvedMarketCapCategory = stock.market_cap_category || null;
     if (stockName || sector || currentPrice) ignoredStockFields = ['stockName', 'sector', 'currentPrice'];
   }
 
@@ -929,6 +950,8 @@ async function resolveBulkImportRow(row, label) {
       label,
       ignoredStockFields,
       stockName: stockAction === 'new' ? resolvedStockName : undefined,
+      sector: resolvedSector,
+      marketCapCategory: resolvedMarketCapCategory,
       quantity: qty,
     },
     resolved: {
@@ -937,6 +960,7 @@ async function resolveBulkImportRow(row, label) {
       stockName: resolvedStockName,
       sector: resolvedSector,
       currentPrice: resolvedCurrentPrice,
+      marketCapCategory: resolvedMarketCapCategory,
       buyDate: buyDate || null,
       brokerage: brokerage != null && brokerage !== '' ? parseFloat(brokerage) : 0,
       notes: notes || null,
@@ -1002,9 +1026,9 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
         if (!stock) {
           const price = resolved.resolved.currentPrice ?? buyPrice;
           const { rows: [newStock] } = await client.query(
-            `INSERT INTO stocks (symbol, name, sector, current_price, previous_close, last_updated, is_active)
-             VALUES ($1, $2, $3, $4, $4, NOW(), true) RETURNING *`,
-            [symbol, resolved.resolved.stockName, resolved.resolved.sector || null, price]
+            `INSERT INTO stocks (symbol, name, sector, current_price, previous_close, last_updated, is_active, market_cap_category)
+             VALUES ($1, $2, $3, $4, $4, NOW(), true, $5) RETURNING *`,
+            [symbol, resolved.resolved.stockName, resolved.resolved.sector || null, price, resolved.resolved.marketCapCategory || null]
           );
           stock = newStock;
           created.stock = true;
