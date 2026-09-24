@@ -4,7 +4,7 @@ import { Download, Upload, Loader } from 'lucide-react';
 import api from '../../api';
 import Modal from '../ui/Modal';
 import { fmt } from '../../utils/format';
-import { downloadImportTemplate } from '../../utils/stockImportTemplate';
+import { downloadImportTemplate, DETAIL_FIELDS, TABLE_HEADER_ROW } from '../../utils/stockImportTemplate';
 
 const badge = (label, tone) => (
   <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
@@ -62,29 +62,39 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const sheet = wb.Sheets['Import'] || wb.Sheets[wb.SheetNames[0]];
       if (!sheet) throw new Error('No "Import" sheet found in the uploaded file');
-      const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
 
-      // Only rows where an investor actually took part (Quantity filled and > 0) are
-      // uploaded — the template pre-lists every active investor, so most rows are
-      // expected to be left blank and should be silently skipped, not flagged as errors.
+      // Transaction Details block — single values that apply to every investor row.
+      const cellVal = (addr) => {
+        const c = sheet[addr];
+        if (!c) return '';
+        return String(c.w ?? c.v ?? '').trim();
+      };
+      const details = Object.fromEntries(DETAIL_FIELDS.map(f => [f.key, cellVal(f.cell)]));
+      const missingDetail = DETAIL_FIELDS.find(f => f.required && !details[f.key]);
+      if (missingDetail) throw new Error(`"${missingDetail.label.replace(' *', '')}" is required at the top of the sheet`);
+
+      // Investor table — only rows where Quantity is filled and > 0 are uploaded; the
+      // template pre-lists every active investor, so most rows are expected to be left
+      // blank and should be silently skipped, not flagged as errors.
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false, range: TABLE_HEADER_ROW - 1 });
       const rows = raw
         .filter(r => parseFloat(r['Quantity']) > 0)
         .map(r => ({
           investorEmail: String(r['Investor Email'] || '').trim(),
-          stockSymbol: String(r['Stock Symbol'] || '').trim(),
-          stockName: String(r['Stock Name (if new)'] || '').trim(),
-          sector: String(r['Sector'] || '').trim(),
-          currentPrice: r['Current Price'] || '',
-          transactionLabel: String(r['Transaction Label'] || '').trim(),
-          accountHolderEmail: String(r['Account Holder Email'] || '').trim(),
+          stockSymbol: details.stockSymbol,
+          stockName: details.stockName,
+          sector: details.sector,
+          currentPrice: details.currentPrice,
+          transactionLabel: details.transactionLabel,
+          accountHolderEmail: details.accountHolderEmail,
           quantity: r['Quantity'] || '',
           buyPrice: r['Buy Price'] || '',
-          buyDate: String(r['Buy Date (YYYY-MM-DD)'] || '').trim(),
-          brokerage: r['Brokerage'] || '',
+          buyDate: details.buyDate,
+          brokerage: details.brokerage,
           notes: String(r['Notes'] || '').trim(),
         }));
 
-      if (!rows.length) throw new Error('No data rows found in the uploaded file');
+      if (!rows.length) throw new Error('No investor rows with a Quantity filled in were found');
 
       setParsedRows(rows);
       const { data } = await api.post('/stocks/bulk-import/preview', { rows });
@@ -129,10 +139,11 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
         {step === 'start' && (
           <div className="space-y-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Import many investments at once from a spreadsheet. The template comes pre-filled
-              with a row for every active investor — just fill in Stock Symbol, Quantity, Buy Price
-              etc. for whoever took part in this transaction and leave Quantity blank for everyone
-              else; blank rows are skipped automatically on upload.
+              Import many investments from one transaction at once. Fill in the Stock Symbol,
+              Account Holder, Buy Date and Brokerage once at the top of the sheet — they apply to
+              every row. Below that, the template pre-fills a row for every active investor; just
+              add Quantity (and Buy Price) for whoever took part and leave Quantity blank for
+              everyone else — blank rows are skipped automatically on upload.
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDownloadTemplate} disabled={downloading}
