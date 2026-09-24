@@ -1147,8 +1147,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     ? activeInvRows.length > 0 && activeInvRows.every(h => h.status === 'exited')
     : investments.length > 0 && investments.every(h => h.status === 'exited');
   const totalInvested = activeGroupId
-    ? activeInvRows.reduce((s, h) => s + parseFloat(h.invested_amount), 0)
-    : investments.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+    ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0)
+    : investments.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0);
   const totalValue = activeGroupId
     ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0)
     : investments.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
