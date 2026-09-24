@@ -835,6 +835,183 @@ router.put('/:id/holders/:holderId/group', authenticate, requireRole('admin', 's
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Helper: validate + resolve one bulk-import row against the DB. No writes.
+// Returns { status: 'ok'|'error', error?, plan? } where plan carries the resolved
+// entities needed by the commit step.
+async function resolveBulkImportRow(row) {
+  const {
+    investorEmail, stockSymbol, stockName, sector, currentPrice,
+    transactionLabel, accountHolderEmail, quantity, buyPrice, buyDate, brokerage, notes,
+  } = row;
+
+  const qty = parseFloat(quantity);
+  const price = parseFloat(buyPrice);
+  if (!investorEmail) return { status: 'error', error: 'Investor email required' };
+  if (!accountHolderEmail) return { status: 'error', error: 'Account holder email required' };
+  if (!stockSymbol) return { status: 'error', error: 'Stock symbol required' };
+  if (!(qty > 0)) return { status: 'error', error: 'Quantity must be greater than 0' };
+  if (!(price > 0)) return { status: 'error', error: 'Buy price must be greater than 0' };
+
+  const { rows: [investor] } = await query(
+    'SELECT id, name, email FROM users WHERE LOWER(email) = LOWER($1)', [String(investorEmail).trim()]
+  );
+  if (!investor) return { status: 'error', error: 'Investor email not found' };
+
+  const { rows: [holder] } = await query(
+    'SELECT id, name, email FROM users WHERE LOWER(email) = LOWER($1)', [String(accountHolderEmail).trim()]
+  );
+  if (!holder) return { status: 'error', error: 'Account holder email not found' };
+
+  const symbol = String(stockSymbol).trim().toUpperCase();
+  const { rows: [stock] } = await query('SELECT * FROM stocks WHERE UPPER(symbol) = $1', [symbol]);
+
+  let stockAction, ignoredStockFields = [];
+  if (!stock) {
+    if (!stockName || !String(stockName).trim()) {
+      return { status: 'error', error: 'Stock Name required for new symbol' };
+    }
+    stockAction = 'new';
+  } else {
+    stockAction = 'existing';
+    if (stockName || sector || currentPrice) ignoredStockFields = ['stockName', 'sector', 'currentPrice'];
+  }
+
+  const label = (transactionLabel && String(transactionLabel).trim()) || 'Default';
+  let groupAction, group = null;
+  if (stock) {
+    const { rows: [g] } = await query(
+      'SELECT * FROM stock_groups WHERE stock_id = $1 AND label = $2', [stock.id, label]
+    );
+    group = g || null;
+    groupAction = group ? 'existing' : 'new';
+  } else {
+    groupAction = 'new';
+  }
+
+  return {
+    status: 'ok',
+    plan: {
+      investorName: investor.name,
+      accountHolderName: holder.name,
+      stockAction,
+      groupAction,
+      symbol,
+      label,
+      ignoredStockFields,
+    },
+    resolved: {
+      investor, holder, stock, group, symbol, label,
+      quantity: qty, buyPrice: price,
+      stockName: stockName ? String(stockName).trim() : null,
+      sector: sector ? String(sector).trim() : null,
+      currentPrice: currentPrice != null && currentPrice !== '' ? parseFloat(currentPrice) : null,
+      buyDate: buyDate || null,
+      brokerage: brokerage != null && brokerage !== '' ? parseFloat(brokerage) : 0,
+      notes: notes || null,
+    },
+  };
+}
+
+// POST preview a bulk import spreadsheet — validation/lookups only, no DB writes
+router.post('/bulk-import/preview', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array required' });
+
+    const results = [];
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const r = await resolveBulkImportRow(rows[i]);
+        results.push({ row: i + 1, status: r.status, error: r.error, plan: r.plan });
+      } catch (err) {
+        results.push({ row: i + 1, status: 'error', error: err.message });
+      }
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST commit a bulk import — each row processed in its own transaction so one
+// bad row doesn't roll back the whole batch.
+router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array required' });
+
+    const results = [];
+    for (let i = 0; i < rows.length; i++) {
+      const client = await pool.connect();
+      try {
+        const resolved = await resolveBulkImportRow(rows[i]);
+        if (resolved.status === 'error') {
+          results.push({ row: i + 1, status: 'error', error: resolved.error, created: { stock: false, group: false } });
+          client.release();
+          continue;
+        }
+        const { investor, holder, quantity, buyPrice, buyDate, brokerage, notes, symbol, label } = resolved.resolved;
+        let { stock, group } = resolved.resolved;
+        const created = { stock: false, group: false };
+
+        await client.query('BEGIN');
+
+        if (!stock) {
+          const price = resolved.resolved.currentPrice ?? buyPrice;
+          const { rows: [newStock] } = await client.query(
+            `INSERT INTO stocks (symbol, name, sector, current_price, previous_close, last_updated, is_active)
+             VALUES ($1, $2, $3, $4, $4, NOW(), true) RETURNING *`,
+            [symbol, resolved.resolved.stockName, resolved.resolved.sector || null, price]
+          );
+          stock = newStock;
+          created.stock = true;
+        }
+
+        if (!group) {
+          const { rows: [newGroup] } = await client.query(
+            `INSERT INTO stock_groups (stock_id, label, holder_id) VALUES ($1, $2, $3) RETURNING *`,
+            [stock.id, label, holder.id]
+          );
+          group = newGroup;
+          created.group = true;
+        }
+
+        const executedAt = buyDate || new Date().toISOString();
+        const total = parseFloat((quantity * buyPrice).toFixed(2));
+        await client.query(
+          `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
+           VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [investor.id, stock.id, quantity, buyPrice, total, notes, executedAt, req.user.id, brokerage || 0, group.id]
+        );
+
+        await client.query(
+          `INSERT INTO holdings (user_id, stock_id, quantity, avg_buy_price, group_id)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (user_id, stock_id) DO UPDATE SET
+             avg_buy_price = (holdings.avg_buy_price * holdings.quantity + $4 * $3) / (holdings.quantity + $3),
+             quantity = holdings.quantity + $3,
+             group_id = COALESCE(holdings.group_id, $5),
+             updated_at = NOW()`,
+          [investor.id, stock.id, quantity, buyPrice, group.id]
+        );
+
+        await client.query('COMMIT');
+        results.push({ row: i + 1, status: 'success', created });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        results.push({ row: i + 1, status: 'error', error: err.message, created: { stock: false, group: false } });
+      } finally {
+        client.release();
+      }
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // DELETE stock
 router.delete('/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {

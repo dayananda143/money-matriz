@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, ArrowLeftRight, Columns, BellRing } from 'lucide-react';
+import { Plus, Edit2, TrendingUp, TrendingDown, RefreshCw, Loader, ShoppingCart, Pencil, Trash2, ChevronUp, ChevronDown, X, History, MoreVertical, ArrowLeft, ArrowLeftRight, Columns, BellRing, UploadCloud } from 'lucide-react';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { fmt, pnlColor, pnlSign } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonTable } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
+import BulkImportModal from '../../components/admin/BulkImportModal';
 
 const EMPTY = { symbol: '', name: '', sector: '', current_price: '', is_active: true, market_cap_category: '' };
 const CAP_CATEGORIES = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap'];
@@ -2457,6 +2458,7 @@ export default function StocksPage() {
   });
   const [stockColMenuOpen, setStockColMenuOpen] = useState(false);
   const [alertStock, setAlertStock] = useState(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const toggleStockCol = col => setStockVisibleCols(prev => {
     const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
     localStorage.setItem('stocks_visible_cols', JSON.stringify([...next])); return next;
@@ -2599,9 +2601,14 @@ export default function StocksPage() {
           <p className="text-gray-500 text-sm mt-1">Manage company-traded securities and view investors</p>
         </div>
         {isAdmin && (
-          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus size={16} /> Add Stock
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBulkImportOpen(true)} className="btn-secondary flex items-center gap-2">
+              <UploadCloud size={16} /> Bulk Import
+            </button>
+            <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus size={16} /> Add Stock
+            </button>
+          </div>
         )}
       </div>
 
@@ -2845,6 +2852,10 @@ export default function StocksPage() {
       </Modal>
 
       <StockAlertModal stock={alertStock} open={!!alertStock} onClose={() => setAlertStock(null)} />
+
+      {isAdmin && (
+        <BulkImportModal open={bulkImportOpen} onClose={() => setBulkImportOpen(false)} stocks={stocks} onImported={load} />
+      )}
 
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-xl shadow-lg text-sm font-medium">
