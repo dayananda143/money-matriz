@@ -17,12 +17,15 @@ export const DETAIL_FIELDS = [
 ];
 const ACCOUNT_HOLDER_NAME_CELL = 'B4'; // auto-filled, display-only
 
-// Columns for the per-investor table below the details block. The "(auto)" name
-// column is display-only — formula-filled from the email next to it, purely so you
-// can visually confirm you picked the right person. It is never read back on upload.
+// Columns for the per-investor table below the details block. The "(auto)" columns
+// are display-only — formula-filled from the email next to them, purely so you can
+// visually confirm who's who and filter by type (Excel's column filter dropdown on
+// "Investor Type" is the equivalent of the All/Client/Employee/Shareholder chips in
+// the app's own investor picker). Neither is read back on upload.
 export const IMPORT_COLUMNS = [
   { key: 'investorEmail', header: 'Investor Email', width: 28 },
   { key: 'investorName', header: 'Investor Name (auto)', width: 22, auto: true },
+  { key: 'investorType', header: 'Investor Type (auto)', width: 18, auto: true },
   { key: 'amount', header: 'Amount (₹)', width: 14 },
   { key: 'notes', header: 'Notes', width: 24 },
 ];
@@ -52,18 +55,22 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
 
   const userRows = [...new Map((activeUsers || [])
     .filter(u => u.email)
-    .map(u => [u.email.toLowerCase(), { email: u.email, name: u.name || '' }])).values()]
-    .sort((a, b) => a.email.localeCompare(b.email));
+    .map(u => [u.email.toLowerCase(), { email: u.email, name: u.name || '', type: u.user_type || '' }])).values()]
+    // Grouped by type (matching the app's All/Client/Employee/Shareholder chip
+    // order isn't fixed alphabetically, but grouping by type then name keeps
+    // each group together so the Investor Type filter is easy to scan even
+    // before you've clicked it).
+    .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
   const symbols = [...new Set((activeStockSymbols || []).filter(Boolean))].sort();
 
-  // Hidden helper sheets (data validation + name-lookup source ranges)
+  // Hidden helper sheets (data validation + name/type-lookup source ranges)
   const usersSheet = wb.addWorksheet('Users', { state: 'veryHidden' });
-  usersSheet.addRows(userRows.map(u => [u.email, u.name]));
+  usersSheet.addRows(userRows.map(u => [u.email, u.name, u.type]));
   const symbolSheet = wb.addWorksheet('Symbols', { state: 'veryHidden' });
   symbolSheet.addRows(symbols.map(s => [s]));
 
   const EMAIL_RANGE = `Users!$A$1:$A$${Math.max(userRows.length, 1)}`;
-  const USERS_LOOKUP_RANGE = `Users!$A$1:$B$${Math.max(userRows.length, 1)}`;
+  const USERS_LOOKUP_RANGE = `Users!$A$1:$C$${Math.max(userRows.length, 1)}`;
   const SYMBOL_RANGE = `Symbols!$A$1:$A$${Math.max(symbols.length, 1)}`;
 
   const sheet = wb.addWorksheet('Import');
@@ -128,12 +135,25 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
       showErrorMessage: true, errorStyle: 'warning',
       error: 'Email not in the active users list — you can still type a custom one.',
     };
-    // Auto-filled name next to the email, so you can visually confirm the right
+    // Auto-filled name/type next to the email, so you can visually confirm the right
     // person was picked. Read-only in spirit (not locked/protected, just formula-driven).
     const invNameCell = sheet.getCell(`${COL.investorName}${r}`);
     invNameCell.value = { formula: `IFERROR(VLOOKUP(${COL.investorEmail}${r},${USERS_LOOKUP_RANGE},2,FALSE),"")` };
     invNameCell.font = { italic: true, color: { argb: 'FF9CA3AF' } };
+    const invTypeCell = sheet.getCell(`${COL.investorType}${r}`);
+    invTypeCell.value = { formula: `IFERROR(VLOOKUP(${COL.investorEmail}${r},${USERS_LOOKUP_RANGE},3,FALSE),"")` };
+    invTypeCell.font = { italic: true, color: { argb: 'FF9CA3AF' } };
   }
+
+  // Excel's own column-filter dropdown on the header row is the equivalent of the
+  // app's All/Client/Employee/Shareholder chips — click the arrow on "Investor
+  // Type (auto)" to filter to just one type. Freeze the header row too, so it
+  // stays visible while scrolling through the investor list.
+  sheet.autoFilter = {
+    from: { row: TABLE_HEADER_ROW, column: 1 },
+    to: { row: LAST_DATA_ROW, column: IMPORT_COLUMNS.length },
+  };
+  sheet.views = [{ state: 'frozen', ySplit: TABLE_HEADER_ROW }];
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
