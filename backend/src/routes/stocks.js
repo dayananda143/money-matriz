@@ -835,13 +835,26 @@ router.put('/:id/holders/:holderId/group', authenticate, requireRole('admin', 's
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Given a stock symbol, works out the auto-generated "Transaction N" label for the
+// next transaction group on that stock — the same convention the manual "+ New
+// Transaction" button uses (Transaction ${existing group count + 1}). A stock that
+// doesn't exist yet (being created by this import) always starts at "Transaction 1".
+async function nextTransactionLabel(symbol) {
+  const { rows: [stock] } = await query('SELECT id FROM stocks WHERE UPPER(symbol) = $1', [symbol]);
+  if (!stock) return 'Transaction 1';
+  const { rows: [{ count }] } = await query('SELECT COUNT(*)::int AS count FROM stock_groups WHERE stock_id = $1', [stock.id]);
+  return `Transaction ${count + 1}`;
+}
+
 // Helper: validate + resolve one bulk-import row against the DB. No writes.
 // Returns { status: 'ok'|'error', error?, plan? } where plan carries the resolved
-// entities needed by the commit step.
-async function resolveBulkImportRow(row) {
+// entities needed by the commit step. `label` is the auto-generated transaction
+// label computed once for the whole batch (see nextTransactionLabel), since every
+// row in one import shares the same stock/transaction.
+async function resolveBulkImportRow(row, label) {
   const {
     investorEmail, stockSymbol, stockName, sector, currentPrice,
-    transactionLabel, accountHolderEmail, quantity, buyPrice, buyDate, brokerage, notes,
+    accountHolderEmail, quantity, buyPrice, buyDate, brokerage, notes,
   } = row;
 
   const qty = parseFloat(quantity);
@@ -889,7 +902,6 @@ async function resolveBulkImportRow(row) {
     if (stockName || sector || currentPrice) ignoredStockFields = ['stockName', 'sector', 'currentPrice'];
   }
 
-  const label = (transactionLabel && String(transactionLabel).trim()) || 'Default';
   let groupAction, group = null;
   if (stock) {
     const { rows: [g] } = await query(
@@ -932,10 +944,15 @@ router.post('/bulk-import/preview', authenticate, requireRole('admin', 'super_ad
     const { rows } = req.body;
     if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array required' });
 
+    // Every row in one import shares the same stock, so the auto-generated
+    // "Transaction N" label is computed once for the whole batch, not per row.
+    const symbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
+    const label = symbol ? await nextTransactionLabel(symbol) : 'Transaction 1';
+
     const results = [];
     for (let i = 0; i < rows.length; i++) {
       try {
-        const r = await resolveBulkImportRow(rows[i]);
+        const r = await resolveBulkImportRow(rows[i], label);
         results.push({ row: i + 1, status: r.status, error: r.error, plan: r.plan });
       } catch (err) {
         results.push({ row: i + 1, status: 'error', error: err.message });
@@ -955,11 +972,16 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
     const { rows } = req.body;
     if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array required' });
 
+    // Computed once up front (before any row's writes) so every row lands in the
+    // same new transaction group instead of each creating its own.
+    const symbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
+    const label = symbol ? await nextTransactionLabel(symbol) : 'Transaction 1';
+
     const results = [];
     for (let i = 0; i < rows.length; i++) {
       const client = await pool.connect();
       try {
-        const resolved = await resolveBulkImportRow(rows[i]);
+        const resolved = await resolveBulkImportRow(rows[i], label);
         if (resolved.status === 'error') {
           results.push({ row: i + 1, status: 'error', error: resolved.error, created: { stock: false, group: false } });
           client.release();

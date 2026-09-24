@@ -82,10 +82,6 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
         .map(r => ({
           investorEmail: String(r['Investor Email'] || '').trim(),
           stockSymbol: details.stockSymbol,
-          stockName: details.stockName,
-          sector: details.sector,
-          currentPrice: details.currentPrice,
-          transactionLabel: details.transactionLabel,
           accountHolderEmail: details.accountHolderEmail,
           quantity: r['Quantity'] || '',
           buyPrice: details.buyPrice,
@@ -141,9 +137,10 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Import many investments from one transaction at once. Fill in the Stock Symbol,
               Buy Price, Account Holder, Buy Date and Brokerage once at the top of the sheet —
-              they apply to every row. Below that, the template pre-fills a row for every active
-              investor; just add Quantity for whoever took part and leave it blank for everyone
-              else — blank rows are skipped automatically on upload.
+              they apply to every row (a new symbol's name/sector are looked up automatically
+              during preview, no need to type them). Below that, the template pre-fills a row for
+              every active investor; just add Quantity for whoever took part and leave it blank
+              for everyone else — blank rows are skipped automatically on upload.
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDownloadTemplate} disabled={downloading}

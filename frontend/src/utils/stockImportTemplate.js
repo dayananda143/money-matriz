@@ -4,18 +4,18 @@ import ExcelJS from 'exceljs';
 // row in the sheet (a bulk import represents one stock transaction: same stock,
 // same account holder, same buy date, same brokerage, many investors).
 // `cell` is the value cell address in the "Import" sheet.
+// Stock Name, Sector and Current Price are intentionally not collected here — for a
+// new symbol they're all auto-filled from Yahoo Finance during Preview. Transaction
+// Label is not collected either — it's auto-generated on import as the next
+// "Transaction N" for the stock, matching the manual "+ New Transaction" naming.
 export const DETAIL_FIELDS = [
   { key: 'stockSymbol', label: 'Stock Symbol', cell: 'B2', required: true },
-  { key: 'stockName', label: 'Stock Name (only if Stock Symbol is new)', cell: 'B3' },
-  { key: 'sector', label: 'Sector (only if new)', cell: 'B4' },
-  { key: 'currentPrice', label: 'Current Price (only if new)', cell: 'B5' },
-  { key: 'transactionLabel', label: 'Transaction Label', cell: 'B6' },
-  { key: 'accountHolderEmail', label: 'Account Holder Email', cell: 'B7', required: true },
-  { key: 'buyDate', label: 'Buy Date (YYYY-MM-DD)', cell: 'B9' },
-  { key: 'brokerage', label: 'Brokerage', cell: 'B10' },
-  { key: 'buyPrice', label: 'Buy Price', cell: 'B11', required: true },
+  { key: 'accountHolderEmail', label: 'Account Holder Email', cell: 'B3', required: true },
+  { key: 'buyDate', label: 'Buy Date (YYYY-MM-DD)', cell: 'B5' },
+  { key: 'brokerage', label: 'Brokerage', cell: 'B6' },
+  { key: 'buyPrice', label: 'Buy Price', cell: 'B7', required: true },
 ];
-const ACCOUNT_HOLDER_NAME_CELL = 'B8'; // auto-filled, display-only
+const ACCOUNT_HOLDER_NAME_CELL = 'B4'; // auto-filled, display-only
 
 // Columns for the per-investor table below the details block. The "(auto)" name
 // column is display-only — formula-filled from the email next to it, purely so you
@@ -27,7 +27,7 @@ export const IMPORT_COLUMNS = [
   { key: 'notes', header: 'Notes', width: 24 },
 ];
 
-export const TABLE_HEADER_ROW = 14; // row the investor-table header sits on
+export const TABLE_HEADER_ROW = 9; // row the investor-table header sits on
 export const TABLE_FIRST_DATA_ROW = TABLE_HEADER_ROW + 1;
 
 // 1-based column index -> spreadsheet letter (A, B, ..., Z, AA, ...)
@@ -87,16 +87,16 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     showErrorMessage: true, errorStyle: 'warning',
     error: 'Not an existing symbol — that\'s fine if you are adding a new stock.',
   };
-  sheet.getCell('B7').dataValidation = {
+  sheet.getCell('B3').dataValidation = {
     type: 'list', allowBlank: true, formulae: [`=${EMAIL_RANGE}`],
     showErrorMessage: true, errorStyle: 'warning',
     error: 'Email not in the active users list — you can still type a custom one.',
   };
   const holderNameCell = sheet.getCell(ACCOUNT_HOLDER_NAME_CELL);
-  holderNameCell.value = { formula: `IFERROR(VLOOKUP(B7,${USERS_LOOKUP_RANGE},2,FALSE),"")` };
+  holderNameCell.value = { formula: `IFERROR(VLOOKUP(B3,${USERS_LOOKUP_RANGE},2,FALSE),"")` };
   holderNameCell.font = { italic: true, color: { argb: 'FF9CA3AF' } };
-  sheet.getCell('A8').value = 'Account Holder Name (auto)';
-  sheet.getCell('A8').font = { italic: true, color: { argb: 'FF9CA3AF' } };
+  sheet.getCell('A4').value = 'Account Holder Name (auto)';
+  sheet.getCell('A4').font = { italic: true, color: { argb: 'FF9CA3AF' } };
 
   // --- Investor table ---
   const headerRow = sheet.getRow(TABLE_HEADER_ROW);
