@@ -990,13 +990,13 @@ router.post('/bulk-import/preview', authenticate, requireRole('admin', 'super_ad
 
     // Every row in one import shares the same stock, so the auto-generated
     // "Transaction N" label is computed once for the whole batch, not per row.
-    const symbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
-    const label = symbol ? await nextTransactionLabel(symbol) : 'Transaction 1';
+    const batchSymbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
+    const batchLabel = batchSymbol ? await nextTransactionLabel(batchSymbol) : 'Transaction 1';
 
     const results = [];
     for (let i = 0; i < rows.length; i++) {
       try {
-        const r = await resolveBulkImportRow(rows[i], label);
+        const r = await resolveBulkImportRow(rows[i], batchLabel);
         results.push({ row: i + 1, status: r.status, error: r.error, plan: r.plan });
       } catch (err) {
         results.push({ row: i + 1, status: 'error', error: err.message });
@@ -1017,15 +1017,17 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
     if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array required' });
 
     // Computed once up front (before any row's writes) so every row lands in the
-    // same new transaction group instead of each creating its own.
-    const symbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
-    const label = symbol ? await nextTransactionLabel(symbol) : 'Transaction 1';
+    // same new transaction group instead of each creating its own. Deliberately
+    // named apart from the per-row `symbol`/`label` destructured below, which
+    // would otherwise shadow these and put them in the temporal dead zone.
+    const batchSymbol = String(rows[0]?.stockSymbol || '').trim().toUpperCase();
+    const batchLabel = batchSymbol ? await nextTransactionLabel(batchSymbol) : 'Transaction 1';
 
     const results = [];
     for (let i = 0; i < rows.length; i++) {
       const client = await pool.connect();
       try {
-        const resolved = await resolveBulkImportRow(rows[i], label);
+        const resolved = await resolveBulkImportRow(rows[i], batchLabel);
         if (resolved.status === 'error') {
           results.push({ row: i + 1, status: 'error', error: resolved.error, created: { stock: false, group: false } });
           client.release();
