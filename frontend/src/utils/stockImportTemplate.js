@@ -61,29 +61,23 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
   headerRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
   });
+  const qtyHeaderCell = sheet.getCell(`${colLetter(IMPORT_COLUMNS.findIndex(c => c.key === 'quantity') + 1)}1`);
+  qtyHeaderCell.note = 'Leave Quantity blank for any investor who did not take part in this transaction — their row is skipped on upload.';
 
-  // One example row to illustrate the expected format
-  sheet.addRow({
-    investorEmail: 'investor@example.com',
-    stockSymbol: 'RELIANCE',
-    stockName: 'Reliance Industries (only needed if RELIANCE is a new symbol)',
-    sector: 'Energy',
-    currentPrice: 2500,
-    transactionLabel: 'Default',
-    accountHolderEmail: 'holder@example.com',
-    quantity: 10,
-    buyPrice: 2400,
-    buyDate: '2026-01-15',
-    brokerage: 0,
-    notes: 'Example row — delete before importing',
-  }).font = { italic: true, color: { argb: 'FF9CA3AF' } };
+  // Every active investor gets a pre-filled row (email only — name auto-fills via
+  // formula). Just fill in Stock Symbol/Quantity/Buy Price/etc. for whoever actually
+  // invested in this transaction, and leave Quantity blank for everyone else; blank-
+  // quantity rows are skipped automatically when you upload.
+  userRows.forEach(u => {
+    sheet.addRow({ investorEmail: u.email });
+  });
 
   const EMAIL_RANGE = `Users!$A$1:$A$${Math.max(userRows.length, 1)}`;
   const USERS_LOOKUP_RANGE = `Users!$A$1:$B$${Math.max(userRows.length, 1)}`;
   const SYMBOL_RANGE = `Symbols!$A$1:$A$${Math.max(symbols.length, 1)}`;
 
-  const FIRST_DATA_ROW = 3; // header (1) + example (2)
-  const LAST_DATA_ROW = 500;
+  const FIRST_DATA_ROW = 2; // header (1), then one pre-filled row per active investor
+  const LAST_DATA_ROW = Math.max(userRows.length + 1, 1) + 200; // + buffer for extra manual rows
 
   for (let r = FIRST_DATA_ROW; r <= LAST_DATA_ROW; r++) {
     // Investor Email — dropdown, but allow free typing (allowBlank: true; not strict-enforced

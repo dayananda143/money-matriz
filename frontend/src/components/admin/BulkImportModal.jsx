@@ -4,7 +4,7 @@ import { Download, Upload, Loader } from 'lucide-react';
 import api from '../../api';
 import Modal from '../ui/Modal';
 import { fmt } from '../../utils/format';
-import { downloadImportTemplate, IMPORT_COLUMNS } from '../../utils/stockImportTemplate';
+import { downloadImportTemplate } from '../../utils/stockImportTemplate';
 
 const badge = (label, tone) => (
   <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
@@ -64,8 +64,11 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
       if (!sheet) throw new Error('No "Import" sheet found in the uploaded file');
       const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
 
+      // Only rows where an investor actually took part (Quantity filled and > 0) are
+      // uploaded — the template pre-lists every active investor, so most rows are
+      // expected to be left blank and should be silently skipped, not flagged as errors.
       const rows = raw
-        .filter(r => IMPORT_COLUMNS.some(c => String(r[c.header] ?? '').trim() !== ''))
+        .filter(r => parseFloat(r['Quantity']) > 0)
         .map(r => ({
           investorEmail: String(r['Investor Email'] || '').trim(),
           stockSymbol: String(r['Stock Symbol'] || '').trim(),
@@ -126,8 +129,10 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
         {step === 'start' && (
           <div className="space-y-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Import many investments at once from a spreadsheet. Download the template first —
-              it includes dropdowns for existing investors, account holders, and stock symbols.
+              Import many investments at once from a spreadsheet. The template comes pre-filled
+              with a row for every active investor — just fill in Stock Symbol, Quantity, Buy Price
+              etc. for whoever took part in this transaction and leave Quantity blank for everyone
+              else; blank rows are skipped automatically on upload.
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDownloadTemplate} disabled={downloading}
