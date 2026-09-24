@@ -23,7 +23,7 @@ const ACCOUNT_HOLDER_NAME_CELL = 'B4'; // auto-filled, display-only
 export const IMPORT_COLUMNS = [
   { key: 'investorEmail', header: 'Investor Email', width: 28 },
   { key: 'investorName', header: 'Investor Name (auto)', width: 22, auto: true },
-  { key: 'quantity', header: 'Quantity', width: 12 },
+  { key: 'amount', header: 'Amount (₹)', width: 14 },
   { key: 'notes', header: 'Notes', width: 24 },
 ];
 
@@ -105,11 +105,11 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
   headerRow.eachCell(cell => {
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
   });
-  sheet.getCell(`${COL.quantity}${TABLE_HEADER_ROW}`).note =
-    'Leave Quantity blank for any investor who did not take part in this transaction — their row is skipped on upload.';
+  sheet.getCell(`${COL.amount}${TABLE_HEADER_ROW}`).note =
+    'Leave Amount blank for any investor who did not take part in this transaction — their row is skipped on upload. Quantity is computed automatically from Amount ÷ Buy Price, same as the manual Add Investment flow.';
 
   // Every active investor gets a pre-filled row (email only — name auto-fills via
-  // formula). Just fill in Quantity for whoever actually invested, and leave it
+  // formula). Just fill in Amount for whoever actually invested, and leave it
   // blank for everyone else; blank rows are skipped on upload.
   userRows.forEach((u, i) => {
     const r = TABLE_FIRST_DATA_ROW + i;

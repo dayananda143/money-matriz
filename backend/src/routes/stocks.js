@@ -854,16 +854,21 @@ async function nextTransactionLabel(symbol) {
 async function resolveBulkImportRow(row, label) {
   const {
     investorEmail, stockSymbol, stockName, sector, currentPrice,
-    accountHolderEmail, quantity, buyPrice, buyDate, brokerage, notes,
+    accountHolderEmail, amount, buyPrice, buyDate, brokerage, notes,
   } = row;
 
-  const qty = parseFloat(quantity);
+  const amt = parseFloat(amount);
   const price = parseFloat(buyPrice);
   if (!investorEmail) return { status: 'error', error: 'Investor email required' };
   if (!accountHolderEmail) return { status: 'error', error: 'Account holder email required' };
   if (!stockSymbol) return { status: 'error', error: 'Stock symbol required' };
-  if (!(qty > 0)) return { status: 'error', error: 'Quantity must be greater than 0' };
+  if (!(amt > 0)) return { status: 'error', error: 'Amount must be greater than 0' };
   if (!(price > 0)) return { status: 'error', error: 'Buy price must be greater than 0' };
+  // Quantity is derived from Amount ÷ Buy Price, same as the manual Add Investment
+  // flow, so the exact rupee amount is preserved rather than drifting from a
+  // rounded quantity.
+  const qty = parseFloat((amt / price).toFixed(2));
+  const total = parseFloat(amt.toFixed(2));
 
   const { rows: [investor] } = await query(
     'SELECT id, name, email FROM users WHERE LOWER(email) = LOWER($1)', [String(investorEmail).trim()]
@@ -924,10 +929,11 @@ async function resolveBulkImportRow(row, label) {
       label,
       ignoredStockFields,
       stockName: stockAction === 'new' ? resolvedStockName : undefined,
+      quantity: qty,
     },
     resolved: {
       investor, holder, stock, group, symbol, label,
-      quantity: qty, buyPrice: price,
+      quantity: qty, buyPrice: price, total,
       stockName: resolvedStockName,
       sector: resolvedSector,
       currentPrice: resolvedCurrentPrice,
@@ -987,7 +993,7 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
           client.release();
           continue;
         }
-        const { investor, holder, quantity, buyPrice, buyDate, brokerage, notes, symbol, label } = resolved.resolved;
+        const { investor, holder, quantity, buyPrice, total, buyDate, brokerage, notes, symbol, label } = resolved.resolved;
         let { stock, group } = resolved.resolved;
         const created = { stock: false, group: false };
 
@@ -1014,7 +1020,6 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
         }
 
         const executedAt = buyDate || new Date().toISOString();
-        const total = parseFloat((quantity * buyPrice).toFixed(2));
         await client.query(
           `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
            VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, $9, $10)`,

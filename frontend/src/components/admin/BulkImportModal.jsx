@@ -73,24 +73,27 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
       const missingDetail = DETAIL_FIELDS.find(f => f.required && !details[f.key]);
       if (missingDetail) throw new Error(`"${missingDetail.label.replace(' *', '')}" is required at the top of the sheet`);
 
-      // Investor table — only rows where Quantity is filled and > 0 are uploaded; the
+      // Investor table — only rows where Amount is filled and > 0 are uploaded; the
       // template pre-lists every active investor, so most rows are expected to be left
-      // blank and should be silently skipped, not flagged as errors.
+      // blank and should be silently skipped, not flagged as errors. Quantity is
+      // computed server-side from Amount ÷ Buy Price, same as the manual Add
+      // Investment flow (so exact rupee amounts are preserved rather than drifting
+      // from a rounded quantity).
       const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false, range: TABLE_HEADER_ROW - 1 });
       const rows = raw
-        .filter(r => parseFloat(r['Quantity']) > 0)
+        .filter(r => parseFloat(r['Amount (₹)']) > 0)
         .map(r => ({
           investorEmail: String(r['Investor Email'] || '').trim(),
           stockSymbol: details.stockSymbol,
           accountHolderEmail: details.accountHolderEmail,
-          quantity: r['Quantity'] || '',
+          amount: r['Amount (₹)'] || '',
           buyPrice: details.buyPrice,
           buyDate: details.buyDate,
           brokerage: details.brokerage,
           notes: String(r['Notes'] || '').trim(),
         }));
 
-      if (!rows.length) throw new Error('No investor rows with a Quantity filled in were found');
+      if (!rows.length) throw new Error('No investor rows with an Amount filled in were found');
 
       setParsedRows(rows);
       const { data } = await api.post('/stocks/bulk-import/preview', { rows });
@@ -139,8 +142,9 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
               Buy Price, Account Holder, Buy Date and Brokerage once at the top of the sheet —
               they apply to every row (a new symbol's name/sector are looked up automatically
               during preview, no need to type them). Below that, the template pre-fills a row for
-              every active investor; just add Quantity for whoever took part and leave it blank
-              for everyone else — blank rows are skipped automatically on upload.
+              every active investor; just add the Amount (₹) they're investing for whoever took
+              part and leave it blank for everyone else — blank rows are skipped automatically on
+              upload, and Quantity is computed for you from Amount ÷ Buy Price.
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDownloadTemplate} disabled={downloading}
@@ -170,7 +174,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
                   <tr>
-                    {['Row', 'Investor', 'Stock', 'Group', 'Account Holder', 'Qty', 'Buy Price', 'Status'].map(h => (
+                    {['Row', 'Investor', 'Stock', 'Group', 'Account Holder', 'Amount', 'Qty', 'Buy Price', 'Status'].map(h => (
                       <th key={h} className="px-2 py-2 text-left font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -198,7 +202,8 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                           ) : '—'}
                         </td>
                         <td className="px-2 py-1.5 text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.plan?.accountHolderName || input?.accountHolderEmail || '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{input?.quantity || '—'}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">{input?.amount ? fmt.currency(input.amount) : '—'}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap">{r.plan?.quantity ?? '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{input?.buyPrice ? fmt.currency(input.buyPrice) : '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
                           {isError ? (
