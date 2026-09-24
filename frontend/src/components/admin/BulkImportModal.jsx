@@ -90,7 +90,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
           buyPrice: details.buyPrice,
           buyDate: details.buyDate,
           brokerage: details.brokerage,
-          notes: String(r['Notes'] || '').trim(),
+          notes: details.notes,
         }));
 
       if (!rows.length) throw new Error('No investor rows with an Amount filled in were found');
@@ -139,12 +139,12 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
           <div className="space-y-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Import many investments from one transaction at once. Fill in the Stock Symbol,
-              Buy Price, Account Holder, Buy Date and Brokerage once at the top of the sheet —
-              they apply to every row (a new symbol's name/sector are looked up automatically
-              during preview, no need to type them). Below that, the template pre-fills a row for
-              every active investor; just add the Amount (₹) they're investing for whoever took
-              part and leave it blank for everyone else — blank rows are skipped automatically on
-              upload, and Quantity is computed for you from Amount ÷ Buy Price.
+              Buy Price, Account Holder, Buy Date, Brokerage and Notes once at the top of the
+              sheet — they apply to every row (a new symbol's name/sector are looked up
+              automatically during preview, no need to type them). Below that, the template
+              pre-fills a row for every active investor; just add the Amount (₹) they're investing
+              for whoever took part and leave it blank for everyone else — blank rows are skipped
+              automatically on upload, and Quantity is computed for you from Amount ÷ Buy Price.
             </p>
             <div className="flex flex-col gap-3">
               <button type="button" onClick={handleDownloadTemplate} disabled={downloading}

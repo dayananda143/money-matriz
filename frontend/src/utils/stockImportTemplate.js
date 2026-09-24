@@ -14,6 +14,7 @@ export const DETAIL_FIELDS = [
   { key: 'buyDate', label: 'Buy Date (YYYY-MM-DD)', cell: 'B5' },
   { key: 'brokerage', label: 'Brokerage', cell: 'B6' },
   { key: 'buyPrice', label: 'Buy Price', cell: 'B7', required: true },
+  { key: 'notes', label: 'Notes', cell: 'B8' },
 ];
 const ACCOUNT_HOLDER_NAME_CELL = 'B4'; // auto-filled, display-only
 
@@ -27,10 +28,9 @@ export const IMPORT_COLUMNS = [
   { key: 'investorName', header: 'Investor Name (auto)', width: 22, auto: true },
   { key: 'investorType', header: 'Investor Type (auto)', width: 18, auto: true },
   { key: 'amount', header: 'Amount (₹)', width: 14 },
-  { key: 'notes', header: 'Notes', width: 24 },
 ];
 
-export const TABLE_HEADER_ROW = 9; // row the investor-table header sits on
+export const TABLE_HEADER_ROW = 10; // row the investor-table header sits on
 export const TABLE_FIRST_DATA_ROW = TABLE_HEADER_ROW + 1;
 
 // 1-based column index -> spreadsheet letter (A, B, ..., Z, AA, ...)
