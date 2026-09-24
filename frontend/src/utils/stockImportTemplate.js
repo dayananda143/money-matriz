@@ -13,6 +13,7 @@ export const DETAIL_FIELDS = [
   { key: 'accountHolderEmail', label: 'Account Holder Email', cell: 'B7', required: true },
   { key: 'buyDate', label: 'Buy Date (YYYY-MM-DD)', cell: 'B9' },
   { key: 'brokerage', label: 'Brokerage', cell: 'B10' },
+  { key: 'buyPrice', label: 'Buy Price', cell: 'B11', required: true },
 ];
 const ACCOUNT_HOLDER_NAME_CELL = 'B8'; // auto-filled, display-only
 
@@ -23,11 +24,10 @@ export const IMPORT_COLUMNS = [
   { key: 'investorEmail', header: 'Investor Email', width: 28 },
   { key: 'investorName', header: 'Investor Name (auto)', width: 22, auto: true },
   { key: 'quantity', header: 'Quantity', width: 12 },
-  { key: 'buyPrice', header: 'Buy Price', width: 12 },
   { key: 'notes', header: 'Notes', width: 24 },
 ];
 
-export const TABLE_HEADER_ROW = 13; // row the investor-table header sits on
+export const TABLE_HEADER_ROW = 14; // row the investor-table header sits on
 export const TABLE_FIRST_DATA_ROW = TABLE_HEADER_ROW + 1;
 
 // 1-based column index -> spreadsheet letter (A, B, ..., Z, AA, ...)
@@ -109,8 +109,8 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     'Leave Quantity blank for any investor who did not take part in this transaction — their row is skipped on upload.';
 
   // Every active investor gets a pre-filled row (email only — name auto-fills via
-  // formula). Just fill in Quantity/Buy Price for whoever actually invested, and
-  // leave Quantity blank for everyone else; blank rows are skipped on upload.
+  // formula). Just fill in Quantity for whoever actually invested, and leave it
+  // blank for everyone else; blank rows are skipped on upload.
   userRows.forEach((u, i) => {
     const r = TABLE_FIRST_DATA_ROW + i;
     sheet.getCell(`${COL.investorEmail}${r}`).value = u.email;
