@@ -1467,7 +1467,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 <tbody>
                   {(() => {
                     const totQty = displayed.reduce((s, h) => s + parseFloat(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity)), 0);
-                    const totInvested = displayed.reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+                    const totInvested = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0);
                     const totCurrent = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
                     const totPnl = displayed.reduce((s, h) => s + parseFloat(h.status === 'active' ? h.unrealized_pnl : h.realized_pnl), 0);
                     const allInvSettled = displayed.length > 0 && displayed.every(h => h.investment_settled);
