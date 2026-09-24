@@ -1865,10 +1865,17 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           const pat = netProfit > 0 ? netProfit - tax : 0;
           const shareholderTaking = pat * 0.30;
           const companyTaking = pat * 0.70;
+          const isLoss = pnl < 0;
+          // On a loss, the shareholder bears only 30% of the loss and the company covers the
+          // other 70% (a payout, shown as a negative Company Takings). Brokerage is unaffected by
+          // this split — the shareholder still bears 100% of it.
+          const loss = isLoss ? -pnl : 0;
+          const shareholderLossShare = loss * 0.30;
+          const companyLossShare = loss * 0.70;
           const investedAmount = parseFloat(patHolder.total_buy_amount || 0);
-          const settlement = pnl >= 0
-            ? investedAmount + shareholderTaking
-            : investedAmount + pnl - holderBrokerage;
+          const settlement = isLoss
+            ? investedAmount - shareholderLossShare - holderBrokerage
+            : investedAmount + shareholderTaking;
 
           return (
             <div className="space-y-4">
@@ -1900,22 +1907,37 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     <span className="text-sm text-gray-500">Brokerage</span>
                     <span className="font-medium text-red-500">−{fmt.currency(holderBrokerage)}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
-                    <span className="text-sm text-gray-500">Tax ({days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span>
-                    <span className="font-medium text-red-500">−{fmt.currency(tax)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">PAT</span>
-                    <span className={`font-bold ${pnlColor(pat)}`}>{fmt.currency(pat)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Shareholder Takings <span className="text-xs text-gray-400">(30%)</span></span>
-                    <span className="font-semibold text-blue-600">{fmt.currency(shareholderTaking)}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Company Takings <span className="text-xs text-gray-400">(70%)</span></span>
-                    <span className="font-semibold text-purple-600">{fmt.currency(companyTaking)}</span>
-                  </div>
+                  {isLoss ? (
+                    <>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Shareholder Takings <span className="text-xs text-gray-400">(30% of Loss)</span></span>
+                        <span className="font-semibold text-red-500">−{fmt.currency(shareholderLossShare)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Company Takings <span className="text-xs text-gray-400">(70% of Loss)</span></span>
+                        <span className="font-semibold text-purple-600">−{fmt.currency(companyLossShare)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">Tax ({days > 365 ? 'LTCG 12.5%' : 'STCG 20%'})</span>
+                        <span className="font-medium text-red-500">−{fmt.currency(tax)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-600">
+                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">PAT</span>
+                        <span className={`font-bold ${pnlColor(pat)}`}>{fmt.currency(pat)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Shareholder Takings <span className="text-xs text-gray-400">(30%)</span></span>
+                        <span className="font-semibold text-blue-600">{fmt.currency(shareholderTaking)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">Company Takings <span className="text-xs text-gray-400">(70%)</span></span>
+                        <span className="font-semibold text-purple-600">{fmt.currency(companyTaking)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1947,6 +1969,14 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
                         <span className="text-sm text-gray-500">Brokerage</span>
                         <span className="font-medium text-red-500">−{fmt.currency(holderBrokerage)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">Your Share of Loss <span className="text-xs text-gray-400">(30%)</span></span>
+                        <span className="font-medium text-red-500">−{fmt.currency(shareholderLossShare)}</span>
+                      </div>
+                      <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+                        <span className="text-sm text-gray-500">Company Covers <span className="text-xs text-gray-400">(70% of Loss)</span></span>
+                        <span className="font-medium text-purple-600">+{fmt.currency(companyLossShare)}</span>
                       </div>
                       <div className="flex justify-between items-center py-2 border-t-2 border-gray-200 dark:border-gray-600">
                         <span className="text-sm font-bold text-gray-900 dark:text-white">Total Settlement</span>
