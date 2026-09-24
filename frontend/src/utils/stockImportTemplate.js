@@ -106,6 +106,16 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     showErrorMessage: true, errorStyle: 'warning',
     error: 'Email not in the active employee/shareholder list — you can still type a custom one.',
   };
+  // Buy Date — formatted as a real date cell (not text) so Excel shows its native
+  // calendar picker icon when the cell is selected.
+  const buyDateCell = sheet.getCell('B5');
+  buyDateCell.numFmt = 'yyyy-mm-dd';
+  buyDateCell.dataValidation = {
+    type: 'date', operator: 'greaterThanOrEqual', allowBlank: true,
+    formulae: [new Date(2000, 0, 1)],
+    showErrorMessage: true, errorStyle: 'warning',
+    error: 'That doesn\'t look like a valid date.',
+  };
   const holderNameCell = sheet.getCell(ACCOUNT_HOLDER_NAME_CELL);
   holderNameCell.value = { formula: `IFERROR(VLOOKUP(B3,${USERS_LOOKUP_RANGE},2,FALSE),"")` };
   holderNameCell.font = { italic: true, color: { argb: 'FF9CA3AF' } };
