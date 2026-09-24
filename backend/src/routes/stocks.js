@@ -866,9 +866,22 @@ async function resolveBulkImportRow(row) {
   const { rows: [stock] } = await query('SELECT * FROM stocks WHERE UPPER(symbol) = $1', [symbol]);
 
   let stockAction, ignoredStockFields = [];
+  let resolvedStockName = stockName ? String(stockName).trim() : null;
+  let resolvedSector = sector ? String(sector).trim() : null;
+  let resolvedCurrentPrice = currentPrice != null && currentPrice !== '' ? parseFloat(currentPrice) : null;
+
   if (!stock) {
-    if (!stockName || !String(stockName).trim()) {
-      return { status: 'error', error: 'Stock Name required for new symbol' };
+    // New symbol — confirm it's a real, tradeable symbol via Yahoo Finance before
+    // allowing it to be created, and auto-fill any name/sector/price left blank.
+    const yahoo = await fetchYahooPrice(symbol);
+    if (!yahoo) {
+      return { status: 'error', error: `Stock Symbol "${symbol}" not recognized by Yahoo Finance — check the symbol` };
+    }
+    if (!resolvedStockName) resolvedStockName = yahoo.name || null;
+    if (!resolvedSector) resolvedSector = yahoo.sector || null;
+    if (resolvedCurrentPrice == null) resolvedCurrentPrice = yahoo.price ?? null;
+    if (!resolvedStockName) {
+      return { status: 'error', error: 'Stock Name required for new symbol (Yahoo Finance did not return one)' };
     }
     stockAction = 'new';
   } else {
@@ -898,13 +911,14 @@ async function resolveBulkImportRow(row) {
       symbol,
       label,
       ignoredStockFields,
+      stockName: stockAction === 'new' ? resolvedStockName : undefined,
     },
     resolved: {
       investor, holder, stock, group, symbol, label,
       quantity: qty, buyPrice: price,
-      stockName: stockName ? String(stockName).trim() : null,
-      sector: sector ? String(sector).trim() : null,
-      currentPrice: currentPrice != null && currentPrice !== '' ? parseFloat(currentPrice) : null,
+      stockName: resolvedStockName,
+      sector: resolvedSector,
+      currentPrice: resolvedCurrentPrice,
       buyDate: buyDate || null,
       brokerage: brokerage != null && brokerage !== '' ? parseFloat(brokerage) : 0,
       notes: notes || null,

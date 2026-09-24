@@ -188,8 +188,8 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                         <td className="px-2 py-1.5 text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.plan?.investorName || input?.investorEmail || '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
                           {r.plan ? (
-                            <span className="flex items-center gap-1">
-                              {r.plan.symbol} {badge(r.plan.stockAction === 'new' ? 'new' : 'existing', r.plan.stockAction === 'new' ? 'new' : 'existing')}
+                            <span className="flex items-center gap-1" title={r.plan.stockAction === 'new' ? `Verified on Yahoo Finance as "${r.plan.stockName || r.plan.symbol}"` : undefined}>
+                              {r.plan.symbol} {badge(r.plan.stockAction === 'new' ? 'new · verified' : 'existing', r.plan.stockAction === 'new' ? 'new' : 'existing')}
                             </span>
                           ) : (input?.stockSymbol || '—')}
                         </td>
