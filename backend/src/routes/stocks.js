@@ -1024,6 +1024,8 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
     const batchLabel = batchSymbol ? await nextTransactionLabel(batchSymbol) : 'Transaction 1';
 
     const results = [];
+    let importedInto = null;   // { stockId, groupId } of the last successful row
+    let brokerageError = null;
     for (let i = 0; i < rows.length; i++) {
       const client = await pool.connect();
       try {
@@ -1033,7 +1035,7 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
           client.release();
           continue;
         }
-        const { investor, holder, quantity, buyPrice, total, buyDate, brokerage, notes, symbol, label } = resolved.resolved;
+        const { investor, holder, quantity, buyPrice, total, buyDate, notes, symbol, label } = resolved.resolved;
         let { stock, group } = resolved.resolved;
         const created = { stock: false, group: false };
 
@@ -1060,10 +1062,14 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
         }
 
         const executedAt = buyDate || new Date().toISOString();
+        // `transactions.brokerage` is a sell-side column (buy-row values are never
+        // read back), so the sheet's brokerage is NOT stored here — it's recorded
+        // once per batch as a brokerage_transactions row after the loop, which is
+        // what the Brokerage widget and the PAT math actually read.
         await client.query(
           `INSERT INTO transactions (user_id, stock_id, type, quantity, price, total, notes, executed_at, created_by, brokerage, group_id)
-           VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, $9, $10)`,
-          [investor.id, stock.id, quantity, buyPrice, total, notes, executedAt, req.user.id, brokerage || 0, group.id]
+           VALUES ($1, $2, 'buy', $3, $4, $5, $6, $7, $8, 0, $9)`,
+          [investor.id, stock.id, quantity, buyPrice, total, notes, executedAt, req.user.id, group.id]
         );
 
         await client.query(
@@ -1078,6 +1084,7 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
         );
 
         await client.query('COMMIT');
+        importedInto = { stockId: stock.id, groupId: group.id };
         results.push({ row: i + 1, status: 'success', created });
       } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
@@ -1086,7 +1093,24 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
         client.release();
       }
     }
-    res.json({ results });
+
+    // Brokerage is one cost for the whole transaction, not per investor — record a
+    // single brokerage_transactions row for the group (same shape the "+ Add"
+    // button in the Brokerage widget creates), only if at least one row imported.
+    const batchBrokerage = parseFloat(rows[0]?.brokerage);
+    if (importedInto && batchBrokerage > 0) {
+      try {
+        await query(
+          `INSERT INTO brokerage_transactions (stock_id, label, amount, group_id) VALUES ($1, NULL, $2, $3)`,
+          [importedInto.stockId, batchBrokerage, importedInto.groupId]
+        );
+      } catch (err) {
+        console.error('bulk-import: failed to record brokerage', err);
+        brokerageError = err.message;
+      }
+    }
+
+    res.json({ results, brokerageError });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

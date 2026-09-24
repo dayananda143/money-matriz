@@ -118,6 +118,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
         .map(r => parsedRows[r.row - 1]);
       const { data } = await api.post('/stocks/bulk-import/commit', { rows: validRows });
       setCommitResults(data.results);
+      if (data.brokerageError) setError(`Investments imported, but the brokerage entry could not be saved: ${data.brokerageError}`);
       setStep('done');
     } catch (err) {
       setError(err.message || 'Import failed');
