@@ -162,7 +162,12 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
           </div>
         )}
 
-        {step === 'preview' && (
+        {step === 'preview' && (() => {
+          // Stock/Group/Account Holder are the same for every row (sheet-wide
+          // fields) — shown once here instead of repeated in every row below.
+          const firstPlan = previewResults.find(r => r.plan)?.plan;
+          const firstInput = parsedRows[0];
+          return (
           <div className="space-y-4">
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-400">
               <strong>{validCount}</strong> of {previewResults.length} row{previewResults.length !== 1 ? 's' : ''} ready to import.
@@ -170,11 +175,49 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                 <span className="text-red-600 dark:text-red-400"> {previewResults.length - validCount} row(s) have errors and will be skipped.</span>
               )}
             </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
+              <div>
+                <p className="text-gray-400">Stock</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1" title={firstPlan?.stockAction === 'new' ? `Verified on Yahoo Finance as "${firstPlan.stockName || firstPlan.symbol}"` : undefined}>
+                  {firstPlan?.symbol || firstInput?.stockSymbol || '—'}
+                  {firstPlan && badge(firstPlan.stockAction === 'new' ? 'new · verified' : 'existing', firstPlan.stockAction === 'new' ? 'new' : 'existing')}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-400">Transaction Group</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200 flex items-center gap-1">
+                  {firstPlan?.label || '—'}
+                  {firstPlan && badge(firstPlan.groupAction === 'new' ? 'new' : 'existing', firstPlan.groupAction === 'new' ? 'new' : 'existing')}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-400">Account Holder</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">{firstPlan?.accountHolderName || firstInput?.accountHolderEmail || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-400">Buy Price</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">{firstInput?.buyPrice ? fmt.currency(firstInput.buyPrice) : '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-400">Buy Date</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">{firstInput?.buyDate || '—'}</p>
+              </div>
+              <div>
+                <p className="text-gray-400">Brokerage</p>
+                <p className="font-medium text-gray-800 dark:text-gray-200">{firstInput?.brokerage ? fmt.currency(firstInput.brokerage) : '—'}</p>
+              </div>
+              {firstInput?.notes && (
+                <div className="col-span-2 sm:col-span-3">
+                  <p className="text-gray-400">Notes</p>
+                  <p className="font-medium text-gray-800 dark:text-gray-200">{firstInput.notes}</p>
+                </div>
+              )}
+            </div>
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto max-h-96">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
                   <tr>
-                    {['Row', 'Investor', 'Stock', 'Group', 'Account Holder', 'Amount', 'Qty', 'Buy Price', 'Status'].map(h => (
+                    {['Row', 'Investor', 'Amount', 'Qty', 'Status'].map(h => (
                       <th key={h} className="px-2 py-2 text-left font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -187,24 +230,8 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
                       <tr key={r.row} className={isError ? 'bg-red-50 dark:bg-red-900/10' : ''}>
                         <td className="px-2 py-1.5 text-gray-500">{r.row}</td>
                         <td className="px-2 py-1.5 text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.plan?.investorName || input?.investorEmail || '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">
-                          {r.plan ? (
-                            <span className="flex items-center gap-1" title={r.plan.stockAction === 'new' ? `Verified on Yahoo Finance as "${r.plan.stockName || r.plan.symbol}"` : undefined}>
-                              {r.plan.symbol} {badge(r.plan.stockAction === 'new' ? 'new · verified' : 'existing', r.plan.stockAction === 'new' ? 'new' : 'existing')}
-                            </span>
-                          ) : (input?.stockSymbol || '—')}
-                        </td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">
-                          {r.plan ? (
-                            <span className="flex items-center gap-1">
-                              {r.plan.label} {badge(r.plan.groupAction === 'new' ? 'new' : 'existing', r.plan.groupAction === 'new' ? 'new' : 'existing')}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="px-2 py-1.5 text-gray-800 dark:text-gray-200 whitespace-nowrap">{r.plan?.accountHolderName || input?.accountHolderEmail || '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{input?.amount ? fmt.currency(input.amount) : '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">{r.plan?.quantity ?? '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">{input?.buyPrice ? fmt.currency(input.buyPrice) : '—'}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
                           {isError ? (
                             <span className="text-red-600 dark:text-red-400" title={r.error}>❌ {r.error}</span>
@@ -225,7 +252,8 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {step === 'done' && (
           <div className="space-y-4">
