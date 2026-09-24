@@ -63,13 +63,20 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
   const symbols = [...new Set((activeStockSymbols || []).filter(Boolean))].sort();
 
+  // Account holders are whoever's brokerage/demat account actually holds the
+  // shares — never a client, only employees/shareholders (and admins, if active).
+  const holderRows = userRows.filter(u => u.type !== 'client');
+
   // Hidden helper sheets (data validation + name/type-lookup source ranges)
   const usersSheet = wb.addWorksheet('Users', { state: 'veryHidden' });
   usersSheet.addRows(userRows.map(u => [u.email, u.name, u.type]));
+  const holdersSheet = wb.addWorksheet('Holders', { state: 'veryHidden' });
+  holdersSheet.addRows(holderRows.map(u => [u.email]));
   const symbolSheet = wb.addWorksheet('Symbols', { state: 'veryHidden' });
   symbolSheet.addRows(symbols.map(s => [s]));
 
   const EMAIL_RANGE = `Users!$A$1:$A$${Math.max(userRows.length, 1)}`;
+  const HOLDER_EMAIL_RANGE = `Holders!$A$1:$A$${Math.max(holderRows.length, 1)}`;
   const USERS_LOOKUP_RANGE = `Users!$A$1:$C$${Math.max(userRows.length, 1)}`;
   const SYMBOL_RANGE = `Symbols!$A$1:$A$${Math.max(symbols.length, 1)}`;
 
@@ -95,9 +102,9 @@ export async function downloadImportTemplate(activeUsers, activeStockSymbols) {
     error: 'Not an existing symbol — that\'s fine if you are adding a new stock.',
   };
   sheet.getCell('B3').dataValidation = {
-    type: 'list', allowBlank: true, formulae: [`=${EMAIL_RANGE}`],
+    type: 'list', allowBlank: true, formulae: [`=${HOLDER_EMAIL_RANGE}`],
     showErrorMessage: true, errorStyle: 'warning',
-    error: 'Email not in the active users list — you can still type a custom one.',
+    error: 'Email not in the active employee/shareholder list — you can still type a custom one.',
   };
   const holderNameCell = sheet.getCell(ACCOUNT_HOLDER_NAME_CELL);
   holderNameCell.value = { formula: `IFERROR(VLOOKUP(B3,${USERS_LOOKUP_RANGE},2,FALSE),"")` };
