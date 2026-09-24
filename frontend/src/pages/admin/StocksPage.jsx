@@ -979,7 +979,14 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
 
   const loadGroups = () => {
     if (!stock) return;
-    api.get(`/stocks/${stock.id}/groups`).then(r => setGroups(r.data)).catch(console.error);
+    api.get(`/stocks/${stock.id}/groups`).then(r => {
+      setGroups(r.data);
+      // Deep link (e.g. from a bulk import) — open straight to that transaction tab.
+      const wanted = new URLSearchParams(window.location.search).get('group');
+      if (wanted && r.data.some(g => String(g.id) === String(wanted))) {
+        setActiveGroupId(parseInt(wanted, 10));
+      }
+    }).catch(console.error);
   };
 
   const addGroup = async () => {

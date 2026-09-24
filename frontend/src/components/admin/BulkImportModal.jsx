@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Download, Upload, Loader } from 'lucide-react';
+import { Download, Upload, Loader, ArrowRight } from 'lucide-react';
 import api from '../../api';
 import Modal from '../ui/Modal';
 import { fmt } from '../../utils/format';
@@ -20,17 +21,20 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
   const [parsedRows, setParsedRows] = useState([]);
   const [previewResults, setPreviewResults] = useState([]);
   const [commitResults, setCommitResults] = useState([]);
+  const [importedInto, setImportedInto] = useState(null); // { stockId, groupId }
   const [downloading, setDownloading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef(null);
+  const navigate = useNavigate();
 
   const reset = () => {
     setStep('start');
     setParsedRows([]);
     setPreviewResults([]);
     setCommitResults([]);
+    setImportedInto(null);
     setError('');
     if (fileRef.current) fileRef.current.value = '';
   };
@@ -118,6 +122,7 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
         .map(r => parsedRows[r.row - 1]);
       const { data } = await api.post('/stocks/bulk-import/commit', { rows: validRows });
       setCommitResults(data.results);
+      setImportedInto(data.importedInto || null);
       if (data.brokerageError) setError(`Investments imported, but the brokerage entry could not be saved: ${data.brokerageError}`);
       setStep('done');
     } catch (err) {
@@ -130,6 +135,13 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
   const handleDone = () => {
     onImported();
     close();
+  };
+
+  const handleGoToTransaction = () => {
+    const { stockId, groupId } = importedInto;
+    onImported();
+    close();
+    navigate(`/admin/stocks/${stockId}?group=${groupId}`);
   };
 
   return (
@@ -302,7 +314,12 @@ export default function BulkImportModal({ open, onClose, stocks, onImported }) {
               </table>
             </div>
             <div className="flex gap-3 pt-2">
-              <button type="button" onClick={handleDone} className="btn-primary flex-1">Done</button>
+              <button type="button" onClick={handleDone} className="btn-secondary flex-1">Done</button>
+              {importedInto && (
+                <button type="button" onClick={handleGoToTransaction} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  Go to Transaction <ArrowRight size={16} />
+                </button>
+              )}
             </div>
           </div>
         )}

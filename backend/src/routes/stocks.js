@@ -1110,7 +1110,7 @@ router.post('/bulk-import/commit', authenticate, requireRole('admin', 'super_adm
       }
     }
 
-    res.json({ results, brokerageError });
+    res.json({ results, brokerageError, importedInto });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
