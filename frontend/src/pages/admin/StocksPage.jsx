@@ -1480,7 +1480,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 <tbody>
                   {(() => {
                     const totQty = displayed.reduce((s, h) => s + parseFloat(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity)), 0);
-                    const totInvested = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+                    // Matches the per-row Amount Invested: capital still held only.
+                    const totInvested = displayed.reduce((s, h) => s + heldCost(h), 0);
                     const totCurrent = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
                     // unrealized covers the still-held part, realized the FIFO-sold
                     // part, so summing both is right for whole and part-sold lots alike.
@@ -1578,7 +1579,9 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <Td className={`text-xs text-gray-500 whitespace-nowrap ${dim}`}>{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>
                       <Td className={dim}>{fmt.currency(h.avg_buy_price)}</Td>
                       <Td className={dim}>{h.avg_sell_price ? fmt.currency(h.avg_sell_price) : '—'}</Td>
-                      <Td className={dim}>{fmt.currency(h.invested_amount)}</Td>
+                      {/* Cost of the shares in the Shares column: the whole lot once
+                          exited, otherwise just the part still held. */}
+                      <Td className={dim}>{fmt.currency(h.status === 'exited' ? h.invested_amount : heldCost(h))}</Td>
                       <Td className={`font-medium ${dim}`}>{h.status === 'active' ? fmt.currency(h.current_value) : '—'}</Td>
                       <Td className={dim}>
                         {h.status === 'active' ? (() => {
