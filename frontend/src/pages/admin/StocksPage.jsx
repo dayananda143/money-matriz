@@ -1676,12 +1676,15 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
       <SellAllModal stock={stock} holders={activeGroupId
         ? groupHolders.map(h => {
             const currentQty = parseFloat(h.quantity);
-            // Use remaining_quantity from investments (buy qty minus already sold for this group)
-            const inv = investments.find(inv => inv.group_id === activeGroupId && inv.id === h.id);
-            if (inv) return { ...h, quantity: Math.min(parseFloat(inv.remaining_quantity), currentQty) };
+            // Sum the remaining quantity across ALL of this holder's buy lots in the
+            // group — someone who bought more than once has several, and taking only
+            // the first left the rest unsold on a "sell all".
+            const sumRemaining = (rows) => rows.reduce((s, inv) => s + parseFloat(inv.remaining_quantity || 0), 0);
+            const invs = investments.filter(inv => inv.group_id === activeGroupId && inv.id === h.id);
+            if (invs.length) return { ...h, quantity: Math.min(sumRemaining(invs), currentQty) };
             // Old data: t.group_id not set — use unassigned buy transaction remaining
-            const oldInv = investments.find(inv => inv.group_id == null && inv.id === h.id);
-            return { ...h, quantity: oldInv ? Math.min(parseFloat(oldInv.remaining_quantity), currentQty) : currentQty };
+            const oldInvs = investments.filter(inv => inv.group_id == null && inv.id === h.id);
+            return { ...h, quantity: oldInvs.length ? Math.min(sumRemaining(oldInvs), currentQty) : currentQty };
           })
         : groupHolders} open={sellAllOpen} onClose={() => setSellAllOpen(false)} onDone={loadHolders} groupId={activeGroupId} />
       <SellModal stock={stock} holder={sellHolder} open={!!sellHolder} onClose={() => setSellHolder(null)} onDone={loadHolders} groupId={activeGroupId} />
