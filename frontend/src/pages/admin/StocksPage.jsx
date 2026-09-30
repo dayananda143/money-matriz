@@ -1154,12 +1154,15 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const allExited = activeGroupId
     ? activeInvRows.length > 0 && activeInvRows.every(h => h.status === 'exited')
     : investments.length > 0 && investments.every(h => h.status === 'exited');
+  // Capital still at work in a lot. Sells are matched to lots FIFO, so a lot can be
+  // part sold and part held — count only the held portion's cost, not the whole lot's.
+  const heldCost = (h) => parseFloat(h.remaining_quantity ?? h.quantity) * parseFloat(h.avg_buy_price || 0);
   const totalInvested = activeGroupId
-    ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0)
-    : investments.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0);
+    ? activeInvRows.reduce((s, h) => s + heldCost(h), 0)
+    : investments.reduce((s, h) => s + heldCost(h), 0);
   const totalValue = activeGroupId
-    ? activeInvRows.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0)
-    : investments.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
+    ? activeInvRows.reduce((s, h) => s + parseFloat(h.current_value), 0)
+    : investments.reduce((s, h) => s + parseFloat(h.current_value), 0);
   const totalSoldPnl = activeGroupId
     ? activeInvRows.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0)
     : investments.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
@@ -1169,8 +1172,10 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const soldPnlPct = totalBuyAmount > 0 ? (totalSoldPnl / totalBuyAmount) * 100 : 0;
   const stockBrokerage = brokerageList.reduce((s, t) => s + parseFloat(t.amount), 0);
   const { totalPAT, totalTax } = (() => {
+    // Any lot with a sold portion contributes realised P/L — including one that is
+    // still 'active' because FIFO only consumed part of it.
     const exitedRows = activeGroupId
-      ? activeInvRows.filter(h => h.status === 'exited')
+      ? activeInvRows.filter(h => parseFloat(h.sold_quantity ?? 0) > 0 || h.status === 'exited')
       : groupHolders.filter(h => h.status === 'exited');
     const totalPnl = exitedRows.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
     const totalTxnBrokerage = exitedRows.reduce((s, h) => s + parseFloat(h.total_sell_brokerage || 0), 0);
@@ -1198,7 +1203,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     if (key === 'avg_buy_price') return parseFloat(h.avg_buy_price);
     if (key === 'invested_amount') return parseFloat(h.invested_amount);
     if (key === 'current_value') return parseFloat(h.current_value);
-    if (key === 'pnl') return h.status === 'active' ? parseFloat(h.unrealized_pnl) : parseFloat(h.realized_pnl);
+    if (key === 'pnl') return parseFloat(h.unrealized_pnl || 0) + parseFloat(h.realized_pnl || 0);
     if (key === 'pnl_pct') {
       if (h.status === 'active') return parseFloat(h.pnl_percent);
       const b = parseFloat(h.total_buy_amount); return b > 0 ? parseFloat(h.realized_pnl) / b * 100 : 0;
@@ -1477,7 +1482,9 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     const totQty = displayed.reduce((s, h) => s + parseFloat(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity)), 0);
                     const totInvested = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.invested_amount), 0);
                     const totCurrent = displayed.filter(h => h.status === 'active').reduce((s, h) => s + parseFloat(h.current_value), 0);
-                    const totPnl = displayed.reduce((s, h) => s + parseFloat(h.status === 'active' ? h.unrealized_pnl : h.realized_pnl), 0);
+                    // unrealized covers the still-held part, realized the FIFO-sold
+                    // part, so summing both is right for whole and part-sold lots alike.
+                    const totPnl = displayed.reduce((s, h) => s + parseFloat(h.unrealized_pnl || 0) + parseFloat(h.realized_pnl || 0), 0);
                     const allInvSettled = displayed.length > 0 && displayed.every(h => h.investment_settled);
                     const allPnlSettled = displayed.length > 0 && displayed.every(h => h.pnl_settled);
                     const invSettledCount = displayed.filter(h => h.investment_settled).length;
@@ -1575,9 +1582,10 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <Td className={`font-medium ${dim}`}>{h.status === 'active' ? fmt.currency(h.current_value) : '—'}</Td>
                       <Td className={dim}>
                         {h.status === 'active' ? (() => {
-                          const partialSellAmt = parseFloat(h.total_sell_amount || 0);
-                          const partialPnl = partialSellAmt > 0
-                            ? partialSellAmt - (parseFloat(h.avg_buy_price) * (parseFloat(h.total_bought_quantity) - parseFloat(h.quantity)))
+                          // realized_pnl already covers just this lot's FIFO-sold
+                          // portion, so a part-sold lot needs no reconstruction here.
+                          const partialPnl = parseFloat(h.sold_quantity || 0) > 0
+                            ? parseFloat(h.realized_pnl || 0)
                             : null;
                           return (
                             <div>
@@ -1683,20 +1691,22 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
       {/* Settlement Summary Modal */}
       <Modal open={settleSummaryOpen} onClose={() => setSettleSummaryOpen(false)} title={`Settlement Summary — ${groups.find(g => g.id === activeGroupId)?.label || ''}`}>
         {settleSummaryOpen && (() => {
-          const groupInvs = investments.filter(h => h.group_id === activeGroupId && h.status === 'exited');
+          // Any lot with a FIFO-sold portion settles, whether or not the whole lot exited.
+          const groupInvs = investments.filter(h => h.group_id === activeGroupId && parseFloat(h.sold_quantity ?? 0) > 0);
           // Group by user (same user may have multiple buy txns)
           const byUser = {};
           groupInvs.forEach(h => {
             if (!byUser[h.id]) byUser[h.id] = { name: h.name, email: h.email, user_type: h.user_type, txns: [] };
             byUser[h.id].txns.push(h);
           });
-          const totalGroupSellAmt = groupInvs.reduce((s, h) => s + parseFloat(h.total_sell_amount || 0), 0) / Math.max(groupInvs.length, 1);
-          // Deduplicated: total_sell_amount is duplicated per txn in same group, so take it from first txn per user
+          // Each lot now carries only its own sold portion, so these are plain sums —
+          // no de-duplication needed as when every lot repeated the group's totals.
+          const totalGroupSellAmt = groupInvs.reduce((s, h) => s + parseFloat(h.total_sell_amount || 0), 0);
           const userRows = Object.values(byUser).map(u => {
-            const totalInvested = u.txns.reduce((s, t) => s + parseFloat(t.total_buy_amount || 0), 0);
-            const totalBuyQty = u.txns.reduce((s, t) => s + parseFloat(t.quantity || 0), 0);
-            // total_sell_amount is the same for all txns of same user+group — use first txn's value
-            const sellAmount = parseFloat(u.txns[0].total_sell_amount || 0);
+            // Cost of the sold shares only (a part-sold lot keeps the rest invested).
+            const totalInvested = u.txns.reduce((s, t) => s + parseFloat(t.sold_quantity || 0) * parseFloat(t.avg_buy_price || 0), 0);
+            const totalBuyQty = u.txns.reduce((s, t) => s + parseFloat(t.sold_quantity || 0), 0);
+            const sellAmount = u.txns.reduce((s, t) => s + parseFloat(t.total_sell_amount || 0), 0);
             const brokerage = u.txns.reduce((s, t) => s + parseFloat(t.total_sell_brokerage || 0), 0);
             const pnl = sellAmount - totalInvested;
             const realizedPnl = u.txns.reduce((s, t) => s + parseFloat(t.realized_pnl || 0), 0);
@@ -1707,7 +1717,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             const netProfit = realizedPnl - brokerage;
             const groupBrokerageShare = stockBrokerage > 0
               ? (() => {
-                  const totalGroupPnl = groupInvs.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0) / Math.max(groupInvs.length, 1);
+                  const totalGroupPnl = groupInvs.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
                   return totalGroupPnl > 0 ? stockBrokerage * (Math.max(0, realizedPnl) / totalGroupPnl) : 0;
                 })()
               : 0;
@@ -1825,42 +1835,16 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
         {patHolder && (() => {
           const isPartial = patHolder.status === 'active';
 
-          // If the same user has multiple buy transactions in the same group,
-          // the backend returns the full group sell amount for each row.
-          // Allocate sells proportionally by this transaction's share of total buy qty.
-          const siblingInvs = investments.filter(inv =>
-            inv.id === patHolder.id &&
-            String(inv.group_id ?? '') === String(patHolder.group_id ?? '')
-          );
-          const totalSiblingBuyQty = siblingInvs.reduce((s, inv) => s + parseFloat(inv.quantity || 0), 0);
-          const proportion = totalSiblingBuyQty > 0
-            ? parseFloat(patHolder.quantity || 0) / totalSiblingBuyQty
-            : 1;
-          const needsProration = siblingInvs.length > 1;
+          // Every figure below describes only this lot's FIFO-sold portion — the
+          // backend already attributes proceeds, brokerage and cost per lot, so
+          // nothing needs pro-rating across the user's other lots in the group.
+          const soldQty = parseFloat(patHolder.sold_quantity || 0);
+          const adjSellAmount = parseFloat(patHolder.total_sell_amount || 0);
+          const adjSellBrokerage = parseFloat(patHolder.total_sell_brokerage || 0);
+          const soldCost = soldQty * parseFloat(patHolder.avg_buy_price || 0);
+          const pnl = parseFloat(patHolder.realized_pnl || 0);
 
-          const adjSellAmount = needsProration
-            ? parseFloat(patHolder.total_sell_amount || 0) * proportion
-            : parseFloat(patHolder.total_sell_amount || 0);
-          const adjSellBrokerage = needsProration
-            ? parseFloat(patHolder.total_sell_brokerage || 0) * proportion
-            : parseFloat(patHolder.total_sell_brokerage || 0);
-
-          const soldQty = isPartial
-            ? parseFloat(patHolder.total_bought_quantity) - parseFloat(patHolder.quantity)
-            : 0;
-          const pnl = isPartial
-            ? adjSellAmount - (parseFloat(patHolder.avg_buy_price) * soldQty)
-            : adjSellAmount - parseFloat(patHolder.total_buy_amount || 0);
-
-          const totalRealizedPnl = groupHolders.reduce((s, x) => {
-            if (x.status === 'exited') return s + parseFloat(x.realized_pnl || 0);
-            const partSell = parseFloat(x.total_sell_amount || 0);
-            if (partSell > 0) {
-              const partPnl = partSell - parseFloat(x.avg_buy_price) * (parseFloat(x.total_bought_quantity) - parseFloat(x.quantity));
-              return s + Math.max(0, partPnl);
-            }
-            return s;
-          }, 0);
+          const totalRealizedPnl = groupHolders.reduce((s, x) => s + parseFloat(x.realized_pnl || 0), 0);
 
           const groupBrokerageShare = totalRealizedPnl > 0 ? stockBrokerage * (Math.max(0, pnl) / totalRealizedPnl) : 0;
           const holderBrokerage = groupBrokerageShare + adjSellBrokerage;
@@ -1880,7 +1864,9 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           const loss = isLoss ? -pnl : 0;
           const shareholderLossShare = loss * 0.30;
           const companyLossShare = loss * 0.70;
-          const investedAmount = parseFloat(patHolder.total_buy_amount || 0);
+          // Settling returns the capital behind the shares actually sold; anything
+          // FIFO left unsold in this lot stays invested and isn't settled yet.
+          const investedAmount = soldCost;
           const settlement = isLoss
             ? investedAmount - shareholderLossShare - holderBrokerage
             : investedAmount + shareholderTaking;
@@ -1892,7 +1878,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 {isPartial && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">Partial Sell</span>}
               </div>
               {isPartial && (
-                <p className="text-xs text-gray-500">Based on {fmt.number(soldQty, 2)} sold shares. Remaining {fmt.number(parseFloat(patHolder.quantity), 2)} shares still active.</p>
+                <p className="text-xs text-gray-500">Based on {fmt.number(soldQty, 2)} sold shares. Remaining {fmt.number(parseFloat(patHolder.remaining_quantity ?? patHolder.quantity), 2)} shares still active.</p>
               )}
 
               {/* Tabs */}
@@ -2022,16 +2008,11 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
               // Brokerage allocation: holder's share of stockBrokerage, then per-transaction share
               const avgBuy = txnHolder ? parseFloat(txnHolder.avg_buy_price) : 0;
 
-              // Total realized P&L across all group holders (for holder's brokerage share)
-              const totalGroupRealizedPnl = groupHolders.reduce((s, x) => {
-                if (x.status === 'exited') return s + Math.max(0, parseFloat(x.realized_pnl || 0));
-                const partSell = parseFloat(x.total_sell_amount || 0);
-                if (partSell > 0) {
-                  const pp = partSell - parseFloat(x.avg_buy_price) * (parseFloat(x.total_bought_quantity) - parseFloat(x.quantity));
-                  return s + Math.max(0, pp);
-                }
-                return s;
-              }, 0);
+              // Total realized P&L across all group holders (for holder's brokerage
+              // share). realized_pnl covers each lot's own sold portion, part-sold
+              // lots included, so no separate partial reconstruction is needed.
+              const totalGroupRealizedPnl = groupHolders.reduce(
+                (s, x) => s + Math.max(0, parseFloat(x.realized_pnl || 0)), 0);
 
               // This holder's realized P&L (from sell transactions in history)
               const holderSellPnl = txnHistory

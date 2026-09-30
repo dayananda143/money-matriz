@@ -293,64 +293,113 @@ router.get('/:id/holders', authenticate, requireRoleOrShareholder('admin', 'supe
   }
 });
 
-// GET individual investments (buy transactions) for a stock — one row per investment
+// GET individual investments (buy transactions) for a stock — one row per investment.
+//
+// Sells are recorded per user+stock+group, not against a specific buy lot, so when
+// someone has several lots at different prices in one group we have to decide which
+// shares a partial sell consumed. That's done FIFO: oldest lot first. Each lot's
+// figures below therefore describe ONLY that lot's own sold/held portion, which
+// makes them additive — summing the lots of a group gives the group's true totals.
+// (Cost basis is exact per lot; sale proceeds are attributed at the group's weighted
+// average sell price, so a lot's realized P/L is soldQty * (avgSell - lotPrice).)
 router.get('/:id/investments', authenticate, requireRoleOrShareholder('admin', 'super_admin'), async (req, res) => {
   try {
     const { rows } = await query(`
+      WITH buys AS (
+        SELECT t.*,
+          SUM(t.quantity) OVER (
+            PARTITION BY t.user_id, t.stock_id, t.group_id
+            ORDER BY t.executed_at, t.id
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS cum_qty
+        FROM transactions t
+        WHERE t.stock_id = $1 AND t.type = 'buy'
+      ),
+      sells AS (
+        SELECT user_id, stock_id, group_id,
+          SUM(quantity)                        AS sold_qty,
+          SUM(quantity * price)                AS sell_amount,
+          SUM(COALESCE(brokerage, 0))          AS sell_brokerage,
+          MAX(executed_at)                     AS last_sell_date,
+          SUM(quantity * price) / NULLIF(SUM(quantity), 0) AS avg_sell_price
+        FROM transactions
+        WHERE stock_id = $1 AND type = 'sell'
+        GROUP BY user_id, stock_id, group_id
+      ),
+      alloc AS (
+        SELECT b.*,
+          sl.avg_sell_price, sl.last_sell_date,
+          COALESCE(sl.sold_qty, 0)       AS group_sold_qty,
+          COALESCE(sl.sell_amount, 0)    AS group_sell_amount,
+          COALESCE(sl.sell_brokerage, 0) AS group_sell_brokerage,
+          -- FIFO: this lot absorbs whatever of the group's sold quantity is left
+          -- once every earlier lot has been filled.
+          LEAST(
+            b.quantity,
+            GREATEST(0, COALESCE(sl.sold_qty, 0) - (b.cum_qty - b.quantity))
+          ) AS sold_quantity
+        FROM buys b
+        LEFT JOIN sells sl
+          ON sl.user_id = b.user_id AND sl.stock_id = b.stock_id
+         AND sl.group_id IS NOT DISTINCT FROM b.group_id
+      ),
+      alloc2 AS (
+        -- Proceeds are shared out across the quantity FIFO actually allocated, not
+        -- the raw sold quantity. They differ only where a group's recorded sells
+        -- exceed its buys (old rounding artefacts) — normalising this way keeps the
+        -- sale's full rupee value attributed instead of dropping the excess.
+        SELECT a.*,
+          SUM(a.sold_quantity) OVER (
+            PARTITION BY a.user_id, a.stock_id, a.group_id
+          ) AS group_alloc_qty
+        FROM alloc a
+      )
       SELECT
-        t.id AS txn_id,
+        a.id AS txn_id,
         u.id,
         u.name, u.email, u.user_type, u.role,
-        t.group_id,
-        (SELECT sg.label FROM stock_groups sg WHERE sg.id = t.group_id) AS group_label,
+        a.group_id,
+        (SELECT sg.label FROM stock_groups sg WHERE sg.id = a.group_id) AS group_label,
         s.current_price,
         -- Per-investment fields (aliased to match holder field names for table compatibility)
-        t.quantity,
-        t.quantity AS total_bought_quantity,
-        t.price AS avg_buy_price,
-        t.total AS invested_amount,
-        t.total AS total_buy_amount,
-        t.executed_at AS first_buy_date,
-        ROUND((t.quantity * s.current_price)::numeric, 2) AS current_value,
-        ROUND((t.quantity * s.current_price - t.total)::numeric, 2) AS unrealized_pnl,
-        CASE WHEN t.total > 0
-          THEN ROUND(((t.quantity * s.current_price - t.total) / t.total * 100)::numeric, 2)
+        a.quantity,
+        a.quantity AS total_bought_quantity,
+        a.price AS avg_buy_price,
+        a.total AS invested_amount,
+        a.total AS total_buy_amount,
+        a.executed_at AS first_buy_date,
+        ROUND(a.sold_quantity::numeric, 4) AS sold_quantity,
+        ROUND((a.quantity - a.sold_quantity)::numeric, 4) AS remaining_quantity,
+        CASE WHEN ROUND((a.quantity - a.sold_quantity)::numeric, 2) <= 0
+          THEN 'exited' ELSE 'active' END AS status,
+        -- Still-held portion only
+        ROUND(((a.quantity - a.sold_quantity) * s.current_price)::numeric, 2) AS current_value,
+        ROUND(((a.quantity - a.sold_quantity) * (s.current_price - a.price))::numeric, 2) AS unrealized_pnl,
+        CASE WHEN a.price > 0
+          THEN ROUND((((s.current_price - a.price) / a.price) * 100)::numeric, 2)
           ELSE 0 END AS pnl_percent,
-        CASE WHEN ROUND(COALESCE((
-          SELECT SUM(sel.quantity) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id
-        ), 0)::numeric, 2) >= ROUND(t.quantity::numeric, 2) THEN 'exited' ELSE 'active' END AS status,
-        GREATEST(0, ROUND((t.quantity - COALESCE((
-          SELECT SUM(sel.quantity) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id
-        ), 0))::numeric, 2)) AS remaining_quantity,
-        -- Per-group sell aggregates
-        COALESCE((SELECT SUM(sel.quantity * sel.price) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS total_sell_amount,
-        COALESCE((SELECT SUM(sel.brokerage) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS total_sell_brokerage,
-        COALESCE((SELECT SUM(sel.quantity * sel.price) - SUM(sel.quantity) * t.price FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id), 0) AS realized_pnl,
-        (SELECT ROUND((SUM(sel.quantity * sel.price) / NULLIF(SUM(sel.quantity), 0))::numeric, 2) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id) AS avg_sell_price,
-        (SELECT MAX(sel.executed_at) FROM transactions sel
-          WHERE sel.user_id = t.user_id AND sel.stock_id = t.stock_id
-            AND sel.type = 'sell' AND sel.group_id IS NOT DISTINCT FROM t.group_id) AS last_sell_date,
-        t.notes,
-        t.investment_settled,
-        t.pnl_settled
-      FROM transactions t
-      JOIN users u ON u.id = t.user_id
-      JOIN stocks s ON s.id = t.stock_id
-      LEFT JOIN holdings h ON h.user_id = t.user_id AND h.stock_id = t.stock_id
-      WHERE t.stock_id = $1 AND t.type = 'buy'
-      ORDER BY t.executed_at DESC, u.name ASC
+        -- Sold portion only (this lot's share, not the whole group's). Proceeds are
+        -- pro-rated as amount * soldQty/groupSoldQty rather than soldQty * avgPrice,
+        -- so a fully-sold single lot keeps the sale's exact rupee value instead of
+        -- drifting by the rounding in an intermediate average price.
+        ROUND((CASE WHEN a.group_alloc_qty > 0
+          THEN a.group_sell_amount * (a.sold_quantity / a.group_alloc_qty)
+          ELSE 0 END)::numeric, 2) AS total_sell_amount,
+        ROUND((CASE WHEN a.group_alloc_qty > 0
+          THEN a.group_sell_brokerage * (a.sold_quantity / a.group_alloc_qty)
+          ELSE 0 END)::numeric, 2) AS total_sell_brokerage,
+        ROUND((CASE WHEN a.group_alloc_qty > 0
+          THEN a.group_sell_amount * (a.sold_quantity / a.group_alloc_qty) - a.sold_quantity * a.price
+          ELSE 0 END)::numeric, 2) AS realized_pnl,
+        ROUND(a.avg_sell_price::numeric, 2) AS avg_sell_price,
+        CASE WHEN a.sold_quantity > 0 THEN a.last_sell_date ELSE NULL END AS last_sell_date,
+        a.notes,
+        a.investment_settled,
+        a.pnl_settled
+      FROM alloc2 a
+      JOIN users u ON u.id = a.user_id
+      JOIN stocks s ON s.id = a.stock_id
+      ORDER BY a.executed_at DESC, u.name ASC
     `, [req.params.id]);
     res.json(rows);
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
