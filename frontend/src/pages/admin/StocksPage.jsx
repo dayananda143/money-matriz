@@ -1156,7 +1156,17 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     : investments.length > 0 && investments.every(h => h.status === 'exited');
   // Capital still at work in a lot. Sells are matched to lots FIFO, so a lot can be
   // part sold and part held — count only the held portion's cost, not the whole lot's.
-  const heldCost = (h) => parseFloat(h.remaining_quantity ?? h.quantity) * parseFloat(h.avg_buy_price || 0);
+  // Derived from the stored invested amount rather than quantity * price: quantity is
+  // rounded to 2dp while the amount is exact, so recomputing would lose rupees on a
+  // lot that is still wholly held.
+  const lotCost = (h, qty) => {
+    const lotQty = parseFloat(h.quantity || 0);
+    const invested = parseFloat(h.invested_amount || 0);
+    if (!(lotQty > 0)) return 0;
+    return qty >= lotQty ? invested : invested * (qty / lotQty);
+  };
+  const heldCost = (h) => lotCost(h, parseFloat(h.remaining_quantity ?? h.quantity));
+  const soldCost = (h) => lotCost(h, parseFloat(h.sold_quantity || 0));
   const totalInvested = activeGroupId
     ? activeInvRows.reduce((s, h) => s + heldCost(h), 0)
     : investments.reduce((s, h) => s + heldCost(h), 0);
@@ -1710,7 +1720,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           const totalGroupSellAmt = groupInvs.reduce((s, h) => s + parseFloat(h.total_sell_amount || 0), 0);
           const userRows = Object.values(byUser).map(u => {
             // Cost of the sold shares only (a part-sold lot keeps the rest invested).
-            const totalInvested = u.txns.reduce((s, t) => s + parseFloat(t.sold_quantity || 0) * parseFloat(t.avg_buy_price || 0), 0);
+            const totalInvested = u.txns.reduce((s, t) => s + soldCost(t), 0);
             const totalBuyQty = u.txns.reduce((s, t) => s + parseFloat(t.sold_quantity || 0), 0);
             const sellAmount = u.txns.reduce((s, t) => s + parseFloat(t.total_sell_amount || 0), 0);
             const brokerage = u.txns.reduce((s, t) => s + parseFloat(t.total_sell_brokerage || 0), 0);
@@ -1847,7 +1857,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           const soldQty = parseFloat(patHolder.sold_quantity || 0);
           const adjSellAmount = parseFloat(patHolder.total_sell_amount || 0);
           const adjSellBrokerage = parseFloat(patHolder.total_sell_brokerage || 0);
-          const soldCost = soldQty * parseFloat(patHolder.avg_buy_price || 0);
+          const soldCostAmt = soldCost(patHolder);
           const pnl = parseFloat(patHolder.realized_pnl || 0);
 
           const totalRealizedPnl = groupHolders.reduce((s, x) => s + parseFloat(x.realized_pnl || 0), 0);
@@ -1872,7 +1882,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
           const companyLossShare = loss * 0.70;
           // Settling returns the capital behind the shares actually sold; anything
           // FIFO left unsold in this lot stays invested and isn't settled yet.
-          const investedAmount = soldCost;
+          const investedAmount = soldCostAmt;
           const settlement = isLoss
             ? investedAmount - shareholderLossShare - holderBrokerage
             : investedAmount + shareholderTaking;
