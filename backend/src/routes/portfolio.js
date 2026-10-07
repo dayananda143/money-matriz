@@ -285,15 +285,26 @@ router.put('/:userId/holding/:stockId', authenticate, async (req, res) => {
     // transaction for this stock, adjust it to match the corrected holding
     // so the two don't silently drift apart. With multiple lots it's
     // ambiguous which one to adjust, so those are left untouched.
-    const { rows: buyTxns } = await query(
-      `SELECT id FROM transactions WHERE user_id = $1 AND stock_id = $2 AND type = 'buy'`,
+    //
+    // Only safe while nothing has been sold. Once a sell exists the holding is
+    // what REMAINS, not what was bought, so copying it onto the buy would destroy
+    // the purchase record — e.g. correcting a sold-out position to 0 would rewrite
+    // a buy of 22 into a buy of 0, leaving a sell with nothing behind it. In that
+    // case the ledger is left alone; the stock page flags any resulting mismatch
+    // and can rebuild holdings from the transactions instead.
+    const { rows: [txnCounts] } = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE type = 'buy')  AS buys,
+         COUNT(*) FILTER (WHERE type = 'sell') AS sells,
+         MIN(id)  FILTER (WHERE type = 'buy')  AS buy_id
+       FROM transactions WHERE user_id = $1 AND stock_id = $2`,
       [req.params.userId, req.params.stockId]
     );
-    if (buyTxns.length === 1) {
+    if (parseInt(txnCounts.buys) === 1 && parseInt(txnCounts.sells) === 0) {
       const total = parseFloat((parseFloat(quantity) * parseFloat(avg_buy_price)).toFixed(2));
       await query(
         `UPDATE transactions SET quantity = $1, price = $2, total = $3 WHERE id = $4`,
-        [quantity, avg_buy_price, total, buyTxns[0].id]
+        [quantity, avg_buy_price, total, txnCounts.buy_id]
       );
     }
 
