@@ -703,6 +703,82 @@ router.patch('/:id/transactions/:txnId/settled', authenticate, requireRole('admi
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST rebuild this stock's holdings from its transaction ledger.
+//
+// `holdings` is a running total maintained alongside the ledger, so a mishandled
+// edit can leave the two disagreeing — a position shows as still held after it was
+// sold, or vice versa. This recomputes every holder's quantity (and average buy
+// price) from their actual transactions. It only ever writes to `holdings`: the
+// ledger is treated as the source of truth and is never modified.
+router.post('/:id/recalculate-holdings', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  const stockId = req.params.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: ledger } = await client.query(`
+      SELECT t.user_id, u.name,
+        SUM(CASE WHEN t.type = 'buy' THEN t.quantity ELSE -t.quantity END) AS qty,
+        SUM(CASE WHEN t.type = 'buy' THEN t.quantity ELSE 0 END)           AS bought_qty,
+        SUM(CASE WHEN t.type = 'buy' THEN t.total ELSE 0 END)              AS bought_amt
+      FROM transactions t JOIN users u ON u.id = t.user_id
+      WHERE t.stock_id = $1
+      GROUP BY t.user_id, u.name
+    `, [stockId]);
+
+    const { rows: current } = await client.query(
+      'SELECT user_id, quantity FROM holdings WHERE stock_id = $1', [stockId]
+    );
+    const currentBy = new Map(current.map(r => [r.user_id, parseFloat(r.quantity)]));
+
+    const changed = [];
+    for (const row of ledger) {
+      const qty = Math.max(0, parseFloat(row.qty));
+      const boughtQty = parseFloat(row.bought_qty);
+      const avg = boughtQty > 0 ? parseFloat(row.bought_amt) / boughtQty : 0;
+      const before = currentBy.get(row.user_id);
+      if (before != null && Math.abs(before - qty) < 0.005) continue;
+
+      await client.query(`
+        INSERT INTO holdings (user_id, stock_id, quantity, avg_buy_price)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id, stock_id) DO UPDATE SET
+          quantity = $3, avg_buy_price = $4, updated_at = NOW()
+      `, [row.user_id, stockId, qty, avg.toFixed(4)]);
+      changed.push({ name: row.name, from: before ?? null, to: qty });
+    }
+
+    // A holdings row with no transactions at all has nothing to stand on.
+    const ledgerIds = new Set(ledger.map(r => r.user_id));
+    for (const row of current) {
+      if (!ledgerIds.has(row.user_id) && parseFloat(row.quantity) !== 0) {
+        await client.query(
+          'UPDATE holdings SET quantity = 0, updated_at = NOW() WHERE user_id = $1 AND stock_id = $2',
+          [row.user_id, stockId]
+        );
+        changed.push({ name: null, from: parseFloat(row.quantity), to: 0 });
+      }
+    }
+
+    // Keep the stock's own active flag in step with the corrected holdings.
+    const { rows: [{ count }] } = await client.query(
+      'SELECT COUNT(*)::int AS count FROM holdings WHERE stock_id = $1 AND ROUND(quantity::numeric, 2) > 0',
+      [stockId]
+    );
+    await client.query('UPDATE stocks SET is_active = $1, last_updated = NOW() WHERE id = $2',
+      [count > 0, stockId]);
+
+    await client.query('COMMIT');
+    res.json({ changed, isActive: count > 0 });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('recalculate-holdings:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // DELETE a transaction (reverses its effect on holdings)
 router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
   try {

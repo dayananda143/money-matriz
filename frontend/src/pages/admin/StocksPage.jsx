@@ -891,6 +891,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   const [sellHolder, setSellHolder] = useState(null);
   const [transferHolder, setTransferHolder] = useState(null);
   const [deleteHolder, setDeleteHolder] = useState(null);
+  const [recalcing, setRecalcing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
@@ -1167,6 +1168,41 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
   };
   const heldCost = (h) => lotCost(h, parseFloat(h.remaining_quantity ?? h.quantity));
   const soldCost = (h) => lotCost(h, parseFloat(h.sold_quantity || 0));
+
+  // `holdings` is a running total kept alongside the ledger, so the two can drift
+  // apart (a sold-out position still showing as held, say). Compare each holder's
+  // stored quantity with what their transactions actually add up to, so a mismatch
+  // is visible — and fixable — rather than quietly skewing statuses and totals.
+  const holdingDrift = (() => {
+    if (!holders.length && !investments.length) return [];
+    const ledgerBy = new Map();
+    investments.forEach(inv => {
+      const q = parseFloat(inv.remaining_quantity ?? inv.quantity) || 0;
+      ledgerBy.set(inv.id, (ledgerBy.get(inv.id) || 0) + q);
+    });
+    const ids = new Set([...holders.map(h => h.id), ...ledgerBy.keys()]);
+    const out = [];
+    ids.forEach(id => {
+      const holder = holders.find(h => h.id === id);
+      const stored = holder ? parseFloat(holder.quantity) || 0 : 0;
+      const ledger = ledgerBy.get(id) || 0;
+      if (Math.abs(stored - ledger) > 0.005) {
+        out.push({ id, name: holder?.name || investments.find(i => i.id === id)?.name || 'Unknown', stored, ledger });
+      }
+    });
+    return out;
+  })();
+
+  const recalcHoldings = async () => {
+    setRecalcing(true);
+    try {
+      const { data } = await api.post(`/stocks/${stock.id}/recalculate-holdings`);
+      loadHolders();
+      showToast?.(data.changed.length
+        ? `Corrected ${data.changed.length} holding${data.changed.length === 1 ? '' : 's'} from the transaction history`
+        : 'Holdings already match the transaction history');
+    } catch (err) { alert(err.message); } finally { setRecalcing(false); }
+  };
   const totalInvested = activeGroupId
     ? activeInvRows.reduce((s, h) => s + heldCost(h), 0)
     : investments.reduce((s, h) => s + heldCost(h), 0);
@@ -1362,6 +1398,30 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                 </div>
               </div>
             </div>}
+            {holdingDrift.length > 0 && (
+              <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="text-xs text-amber-800 dark:text-amber-300">
+                    <p className="font-semibold">
+                      {holdingDrift.length} holding{holdingDrift.length === 1 ? ' does' : 's do'} not match the transaction history
+                    </p>
+                    <p className="mt-1 text-amber-700 dark:text-amber-400">
+                      {holdingDrift.slice(0, 4).map(d => `${d.name}: showing ${fmt.number(d.stored, 2)}, transactions say ${fmt.number(d.ledger, 2)}`).join(' · ')}
+                      {holdingDrift.length > 4 && ` · +${holdingDrift.length - 4} more`}
+                    </p>
+                    <p className="mt-1 text-amber-700/80 dark:text-amber-400/80">
+                      This can show a sold-out position as still active. Recalculating rewrites only the holding totals — your transactions are left untouched.
+                    </p>
+                  </div>
+                  {isAdmin && (
+                    <button type="button" onClick={recalcHoldings} disabled={recalcing}
+                      className="btn-secondary text-xs whitespace-nowrap flex-shrink-0">
+                      {recalcing ? 'Recalculating...' : 'Recalculate from transactions'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             <div className={`grid ${allExited ? 'grid-cols-5' : 'grid-cols-3'} gap-3`}>
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
                   <p className="text-xs text-gray-500">Total Investors</p>
