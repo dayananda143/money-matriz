@@ -1512,6 +1512,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                     <SortTh label="Shares" col="quantity" />
                     <Th>Buy Date</Th>
                     <SortTh label="Buy Price" col="avg_buy_price" />
+                    <Th>Sell Date</Th>
                     <Th>Sell Price</Th>
                     <SortTh label="Amount Invested" col="invested_amount" />
                     <SortTh label="Current Value" col="current_value" />
@@ -1567,6 +1568,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                         <Td></Td>
                         <Td></Td>
                         <Td className="font-bold text-gray-900 dark:text-white">{fmt.number(totQty, 2)}</Td>
+                        {/* Buy Date, Buy Price, Sell Date, Sell Price — not meaningful as totals */}
+                        <Td>—</Td>
                         <Td>—</Td>
                         <Td>—</Td>
                         <Td>—</Td>
@@ -1648,6 +1651,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                       <Td className={`font-medium ${dim}`}>{fmt.number(h.status === 'exited' ? h.total_bought_quantity : (h.remaining_quantity ?? h.quantity), 2)}</Td>
                       <Td className={`text-xs text-gray-500 whitespace-nowrap ${dim}`}>{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>
                       <Td className={dim}>{fmt.currency(h.avg_buy_price)}</Td>
+                      <Td className={`text-xs text-gray-500 whitespace-nowrap ${dim}`}>{h.last_sell_date ? fmt.date(h.last_sell_date) : '—'}</Td>
                       <Td className={dim}>{h.avg_sell_price ? fmt.currency(h.avg_sell_price) : '—'}</Td>
                       {/* Cost of the shares in the Shares column: the whole lot once
                           exited, otherwise just the part still held. */}
