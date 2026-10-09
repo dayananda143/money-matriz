@@ -2515,11 +2515,21 @@ export default function StocksPage() {
   const [stockPage, setStockPage] = useState(1);
   const [stockSearch, setStockSearch] = useState('');
   const [stockLimit, setStockLimit] = useState(() => parseInt(localStorage.getItem('stocks_page_limit'), 10) || 10);
-  const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'stop_loss', 'target', 'period', 'status', 'updated'];
-  const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', stop_loss: 'Stop Loss', target: 'Target', period: 'Period', status: 'Status', updated: 'Updated' };
+  const ST_COLS = ['name', 'sector', 'current_price', 'buy_price', 'stop_loss', 'target', 'period', 'txn_date', 'status', 'updated'];
+  const ST_COL_LABEL = { name: 'Name', sector: 'Sector', current_price: 'Current Price', buy_price: 'Buy Price', stop_loss: 'Stop Loss', target: 'Target', period: 'Period', txn_date: 'Buy / Sell Date', status: 'Status', updated: 'Updated' };
+  // A saved preference lists only the columns that existed when it was saved, so a
+  // column added later would stay hidden for anyone who had already customised this.
+  // Remembering which columns a preference was aware of lets new ones show up once,
+  // without resetting the choices already made.
   const [stockVisibleCols, setStockVisibleCols] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem('stocks_visible_cols') || 'null'); return s ? new Set(s) : new Set(ST_COLS); } catch { return new Set(ST_COLS); }
+    try {
+      const saved = JSON.parse(localStorage.getItem('stocks_visible_cols') || 'null');
+      if (!saved) return new Set(ST_COLS);
+      const known = JSON.parse(localStorage.getItem('stocks_known_cols') || 'null') || saved;
+      return new Set([...saved, ...ST_COLS.filter(c => !known.includes(c))]);
+    } catch { return new Set(ST_COLS); }
   });
+  useEffect(() => { try { localStorage.setItem('stocks_known_cols', JSON.stringify(ST_COLS)); } catch {} }, []);
   const [stockColMenuOpen, setStockColMenuOpen] = useState(false);
   const [alertStock, setAlertStock] = useState(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
@@ -2636,6 +2646,11 @@ export default function StocksPage() {
     let av = a[key], bv = b[key];
     if (key === 'change') { av = parseFloat(a.current_price) - parseFloat(a.previous_close); bv = parseFloat(b.current_price) - parseFloat(b.previous_close); }
     if (key === 'period') { av = a.first_investment_date ? new Date(a.first_investment_date).getTime() : 0; bv = b.first_investment_date ? new Date(b.first_investment_date).getTime() : 0; }
+    if (key === 'txn_date') {
+      const pick = (x) => (isEffectivelyActive(x) ? x.last_buy_date : x.last_sell_date);
+      av = pick(a) ? new Date(pick(a)).getTime() : 0;
+      bv = pick(b) ? new Date(pick(b)).getTime() : 0;
+    }
     if (av == null || av === '') av = dir === 'asc' ? Infinity : -Infinity;
     if (bv == null || bv === '') bv = dir === 'asc' ? Infinity : -Infinity;
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
@@ -2742,6 +2757,7 @@ export default function StocksPage() {
               {stockVisibleCols.has('stop_loss') && <Th>Stop Loss</Th>}
               {stockVisibleCols.has('target') && <Th>Target</Th>}
               {stockVisibleCols.has('period') && <SortThMain label="Period" col="period" />}
+              {stockVisibleCols.has('txn_date') && <SortThMain label="Buy / Sell Date" col="txn_date" />}
               {stockVisibleCols.has('status') && <SortThMain label="Status" col="is_active" />}
               {stockVisibleCols.has('updated') && <SortThMain label="Updated" col="last_updated" />}
             </tr>
@@ -2814,6 +2830,13 @@ export default function StocksPage() {
                       </Td>
                     )}
                     {stockVisibleCols.has('period') && <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>}
+                    {/* Still held: when it was last bought into. Exited: when it was finally sold. */}
+                    {stockVisibleCols.has('txn_date') && <Td className="text-xs text-gray-500 whitespace-nowrap">
+                      {(() => {
+                        const d = isEffectivelyActive(s) ? s.last_buy_date : s.last_sell_date;
+                        return d ? fmt.date(d) : '—';
+                      })()}
+                    </Td>}
                     {stockVisibleCols.has('status') && <Td><span className={(s.is_active || s.has_active_investors) ? 'badge-green' : 'badge-red'}>{(s.is_active || s.has_active_investors) ? 'Active' : 'Inactive'}</span></Td>}
                     {stockVisibleCols.has('updated') && <Td className="text-gray-500 text-xs">{s.last_updated ? fmt.datetime(s.last_updated) : '—'}</Td>}
                   </tr>

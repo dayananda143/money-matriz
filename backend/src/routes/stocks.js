@@ -85,6 +85,7 @@ router.get('/all', authenticate, requireRoleOrShareholder('admin', 'super_admin'
     const { rows } = await query(`
       SELECT s.*,
         (SELECT MIN(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS first_investment_date,
+        (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS last_buy_date,
         (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'sell') AS last_sell_date,
         u.id AS holder_id, u.name AS holder_name, u.email AS holder_email, u.user_type AS holder_user_type,
         (SELECT CASE WHEN COUNT(DISTINCT h.avg_buy_price) = 1 THEN MIN(h.avg_buy_price) ELSE NULL END
