@@ -2772,7 +2772,7 @@ export default function StocksPage() {
               const msg = refreshMsg[s.id];
               return (
                 <>
-                  <tr key={s.id} onClick={() => navigate('/admin/stocks/' + s.id)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
+                  <tr key={s.id} onClick={() => window.open('/admin/stocks/' + s.id, '_blank', 'noopener')} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer">
                     <Td onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         <div className="flex-shrink-0">
@@ -2809,7 +2809,12 @@ export default function StocksPage() {
                             </div>
                           )}
                         </div>
-                        <span className="font-bold text-brand-600 dark:text-brand-400 cursor-pointer" onClick={() => navigate('/admin/stocks/' + s.id)}>{s.symbol}</span>
+                        {/* A real link, so middle-click and ctrl/cmd-click behave as
+                            expected. stopPropagation keeps the row handler from
+                            opening a second tab on top of this one. */}
+                        <a href={'/admin/stocks/' + s.id} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="font-bold text-brand-600 dark:text-brand-400 hover:underline">{s.symbol}</a>
                       </div>
                     </Td>
                     {stockVisibleCols.has('name') && <Td className="font-medium text-gray-900 dark:text-white">{s.name}</Td>}
