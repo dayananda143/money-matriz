@@ -55,6 +55,18 @@ function classifyMarketCap(marketCap) {
   return 'Micro Cap';
 }
 
+// A stock counts as active while anyone still holds it. Any route that changes
+// holdings has to re-check this, or the stock keeps whatever flag it last had —
+// which is how a fully exited stock can go on showing as Active in the list.
+async function syncStockActive(stockId) {
+  const { rows: [{ count }] } = await query(
+    'SELECT COUNT(*)::int AS count FROM holdings WHERE stock_id = $1 AND ROUND(quantity::numeric, 2) > 0',
+    [stockId]
+  );
+  await query('UPDATE stocks SET is_active = $1, last_updated = NOW() WHERE id = $2', [count > 0, stockId]);
+  return count > 0;
+}
+
 // GET stock info from Yahoo Finance by symbol (for new stock lookup)
 router.get('/lookup', authenticate, async (req, res) => {
   try {
@@ -684,6 +696,10 @@ router.put('/:id/transactions/:txnId', authenticate, requireRole('admin', 'super
       }
     }
 
+    // Editing a quantity can empty the last position, or refill one — either way
+    // the stock's active flag has to follow.
+    await syncStockActive(stockId);
+
     res.json(updated);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -835,6 +851,9 @@ router.delete('/:id/transactions/:txnId', authenticate, requireRole('admin', 'su
         }
       }
     }
+
+    // Removing a buy can empty the last position; removing a sell can refill one.
+    await syncStockActive(stockId);
 
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
