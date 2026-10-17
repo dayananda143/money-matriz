@@ -21,7 +21,8 @@ export default function OverviewPage() {
       api.get('/dashboard/all-users'),
     ]).then(([ov, h, c, u]) => {
       setData(ov.data);
-      setHoldings(h.data);
+      // /all-holdings returns { active, exited }; the widget wants the active list.
+      setHoldings(h.data?.active || []);
       setAllClients(c.data);
       setAllUsers(u.data);
     }).catch(console.error).finally(() => setLoading(false));

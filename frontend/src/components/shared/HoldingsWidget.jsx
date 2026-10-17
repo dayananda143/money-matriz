@@ -11,7 +11,11 @@ export default function HoldingsWidget({ holdings, radioName = 'holdingsView', s
   const [view, setView] = useState('current');
   const [hovered, setHovered] = useState(null);
 
-  const active = (holdings || []).filter(h => parseFloat(h.quantity) > 0);
+  // Callers pass either a plain list or the { active, exited } shape /all-holdings
+  // returns. Coercing here means a shape mismatch renders nothing rather than
+  // throwing on .filter and blanking the whole page around it.
+  const list = Array.isArray(holdings) ? holdings : (holdings?.active || []);
+  const active = list.filter(h => parseFloat(h.quantity) > 0);
   if (!active.length) return null;
 
   const totalCurrentValue = active.reduce((s, h) => s + parseFloat(h.current_value), 0);
