@@ -697,7 +697,7 @@ function SortTh({ label, col, sort, onSort }) {
   );
 }
 
-const ACTIVE_COLS  = ['name','sector','buy_date','qty','avg_buy','current_price','current_value','pnl','pnl_pct'];
+const ACTIVE_COLS  = ['name','sector','buy_date','qty','avg_buy','amt_invested','current_price','current_value','pnl','pnl_pct'];
 const EXITED_COLS  = ['name','sector','shares','avg_buy','amt_invested','buy_date','sell_date','realized_pnl','pnl_pct'];
 const COL_LABEL    = { name:'Name', sector:'Sector', buy_date:'Buy Date', qty:'Qty', avg_buy:'Avg Buy', current_price:'Current Price', current_value:'Current Value', pnl:'P&L', pnl_pct:'P&L %', shares:'Shares', amt_invested:'Amt Invested', sell_date:'Sell Date', realized_pnl:'Realized P&L' };
 
@@ -714,17 +714,29 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState('');
+  // A saved preference lists only the columns that existed when it was saved, so a
+  // column added later would stay hidden for anyone who had already customised this.
+  // Remembering which columns a preference knew about lets new ones appear once,
+  // without discarding the choices already made.
   const [visibleCols, setVisibleCols] = useState(() => {
+    const merge = (savedCols, allCols, knownCols) =>
+      new Set([...savedCols, ...allCols.filter(c => !(knownCols || savedCols).includes(c))]);
     try {
       const saved = JSON.parse(localStorage.getItem('portfolio_visible_cols') || '{}');
+      const known = JSON.parse(localStorage.getItem('portfolio_known_cols') || 'null') || {};
       return {
-        active: saved.active ? new Set(saved.active) : new Set(ACTIVE_COLS),
-        exited: saved.exited ? new Set(saved.exited) : new Set(EXITED_COLS),
+        active: saved.active ? merge(saved.active, ACTIVE_COLS, known.active) : new Set(ACTIVE_COLS),
+        exited: saved.exited ? merge(saved.exited, EXITED_COLS, known.exited) : new Set(EXITED_COLS),
       };
     } catch {
       return { active: new Set(ACTIVE_COLS), exited: new Set(EXITED_COLS) };
     }
   });
+  useEffect(() => {
+    try {
+      localStorage.setItem('portfolio_known_cols', JSON.stringify({ active: ACTIVE_COLS, exited: EXITED_COLS }));
+    } catch {}
+  }, []);
   const [colMenuOpen, setColMenuOpen] = useState(false);
 
   const cols = tab === 'active' ? ACTIVE_COLS : EXITED_COLS;
@@ -949,6 +961,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
                   {visible.has('buy_date') && <SortTh label="Buy Date" col="first_buy_date" sort={sort} onSort={handleSort} />}
                   {visible.has('qty') && <SortTh label="Qty" col="quantity" sort={sort} onSort={handleSort} />}
                   {visible.has('avg_buy') && <SortTh label="Avg Buy" col="avg_buy_price" sort={sort} onSort={handleSort} />}
+                  {visible.has('amt_invested') && <SortTh label="Amt Invested" col="total_buy_amount" sort={sort} onSort={handleSort} />}
                   {visible.has('current_price') && <SortTh label="Current Price" col="current_price" sort={sort} onSort={handleSort} />}
                   {visible.has('current_value') && <SortTh label="Current Value" col="current_value" sort={sort} onSort={handleSort} />}
                   {visible.has('pnl') && <SortTh label="P&L" col="unrealized_pnl" sort={sort} onSort={handleSort} />}
@@ -964,6 +977,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
                       {visible.has('buy_date') && <Td className="text-xs text-gray-500">{h.first_buy_date ? fmt.date(h.first_buy_date) : '—'}</Td>}
                       {visible.has('qty') && <Td>{fmt.number(h.quantity, 2)}</Td>}
                       {visible.has('avg_buy') && <Td>{fmt.currency(h.avg_buy_price)}</Td>}
+                      {visible.has('amt_invested') && <Td>{fmt.currency(h.total_buy_amount)}</Td>}
                       {visible.has('current_price') && <Td>{fmt.currency(h.current_price)}</Td>}
                       {visible.has('current_value') && <Td className="font-medium">{fmt.currency(h.current_value)}</Td>}
                       {visible.has('pnl') && <Td><span className={pnlColor(h.unrealized_pnl)}>{pnlSign(h.unrealized_pnl)}{fmt.currency(h.unrealized_pnl)}</span></Td>}
