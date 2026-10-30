@@ -114,7 +114,7 @@ export default function Sidebar({ open, onClose }) {
   const helpItem = [{ to: '/guide', icon: BookOpen, label: 'Guide' }];
   const ideasItem = (isAdmin || isShareholder) ? [{ to: '/ideas', icon: Lightbulb, label: 'Ideas' }] : [];
   const seen = new Set();
-  const allItems = [...base, ...adminItems, ...superItems, ...helpItem].filter(i => {
+  const allItems = [...base, ...adminItems, ...superItems].filter(i => {
     if (seen.has(i.to)) return false;
     seen.add(i.to);
     return true;
@@ -161,6 +161,8 @@ export default function Sidebar({ open, onClose }) {
               {superItems.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
             </>
           )}
+          <p className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Help</p>
+          {helpItem.map(item => <NavItem key={item.to} {...item} onClick={onClose} />)}
           {ideasItem.length > 0 && (
             <>
               <p className="px-3 pt-4 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Community</p>
