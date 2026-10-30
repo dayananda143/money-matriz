@@ -6,7 +6,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import api from '../../api';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing, Search, History
+  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing, Search, History, BookOpen
 } from 'lucide-react';
 
 const navConfig = {
@@ -110,9 +110,11 @@ export default function Sidebar({ open, onClose }) {
   const adminItems = (isAdmin ? navConfig.admin_extra : isShareholder ? navConfig.shareholder_extra : [])
     .filter(i => (i.to !== '/company' && i.to !== '/admin/overview') || isSuperAdmin);
   const superItems = user.role === 'super_admin' ? navConfig.super_admin_extra : [];
+  // Everyone gets the guide, whatever their role; its contents adapt.
+  const helpItem = [{ to: '/guide', icon: BookOpen, label: 'Guide' }];
   const ideasItem = (isAdmin || isShareholder) ? [{ to: '/ideas', icon: Lightbulb, label: 'Ideas' }] : [];
   const seen = new Set();
-  const allItems = [...base, ...adminItems, ...superItems].filter(i => {
+  const allItems = [...base, ...adminItems, ...superItems, ...helpItem].filter(i => {
     if (seen.has(i.to)) return false;
     seen.add(i.to);
     return true;

@@ -40,6 +40,7 @@ import NewsPage from './pages/shared/NewsPage';
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
 import ActivityPage from './pages/admin/ActivityPage';
+import GuidePage from './pages/GuidePage';
 import UsersPage from './pages/admin/UsersPage';
 import StocksPage from './pages/admin/StocksPage';
 import StockDetailPage from './pages/admin/StockDetailPage';
@@ -70,6 +71,7 @@ function ProtectedRoutes() {
 
         {/* Portfolio & Transactions (both types) */}
         <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/guide" element={<GuidePage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/funds" element={<FundsPage />} />
 
