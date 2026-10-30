@@ -39,6 +39,7 @@ import NewsPage from './pages/shared/NewsPage';
 
 // Admin pages
 import OverviewPage from './pages/admin/OverviewPage';
+import ActivityPage from './pages/admin/ActivityPage';
 import UsersPage from './pages/admin/UsersPage';
 import StocksPage from './pages/admin/StocksPage';
 import StockDetailPage from './pages/admin/StockDetailPage';
@@ -125,6 +126,7 @@ function ProtectedRoutes() {
         {(isAdmin || isShareholder) && <Route path="/stock-alerts" element={<StockAlertsPage />} />}
         {isAdmin && <Route path="/admin/relationships" element={<RelationshipsPage />} />}
         {isAdmin && <Route path="/admin/overview" element={<OverviewPage />} />}
+        {isAdmin && <Route path="/admin/activity" element={<ActivityPage />} />}
         {user.role === 'super_admin' && <Route path="/admin/settings" element={<SettingsPage />} />}
 
         {/* Fallback */}

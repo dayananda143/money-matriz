@@ -9,6 +9,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Must sit above the routes: it establishes who is making the request, which the
+// database triggers read to attribute every row they record.
+app.use(require('./middleware/activity').activityLogger);
+
+app.use('/api/activity', require('./routes/activity'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/stocks', require('./routes/stocks'));

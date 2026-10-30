@@ -6,7 +6,7 @@ import { useNotifications } from '../../contexts/NotificationContext';
 import api from '../../api';
 import {
   LayoutDashboard, TrendingUp, ArrowLeftRight, Users, BarChart2,
-  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing, Search
+  Link2, X, Wallet, UserCircle, SlidersHorizontal, Building2, PieChart, Lightbulb, Briefcase, CalendarClock, Activity, ClipboardList, Newspaper, Tv2, BellRing, Search, History
 } from 'lucide-react';
 
 const navConfig = {
@@ -34,6 +34,7 @@ const navConfig = {
   ],
   admin_extra: [
     { to: '/admin/overview', icon: LayoutDashboard, label: 'Overview' },
+    { to: '/admin/activity', icon: History, label: 'Activity' },
     { to: '/admin/clients', icon: Users, label: 'All Clients' },
     { to: '/admin/users', icon: UserCircle, label: 'Users' },
     { to: '/trade-requests', icon: ClipboardList, label: 'Trade Requests' },
