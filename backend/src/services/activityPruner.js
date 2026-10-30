@@ -51,3 +51,14 @@ function start() {
 }
 
 module.exports = { start, prune };
+
+// Also runnable on its own — `node src/services/activityPruner.js` — so the same
+// code can be driven by system cron, or run by hand to clear a backlog now.
+if (require.main === module) {
+  prune()
+    .then(({ total }) => {
+      console.log(total ? `[ActivityPruner] done` : '[ActivityPruner] nothing to remove');
+      process.exit(0);
+    })
+    .catch((err) => { console.error('[ActivityPruner] failed:', err.message); process.exit(1); });
+}
