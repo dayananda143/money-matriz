@@ -8,6 +8,7 @@ import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonTable } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
 import BulkImportModal from '../../components/admin/BulkImportModal';
+import InfoTip from '../../components/ui/InfoTip';
 
 const EMPTY = { symbol: '', name: '', sector: '', current_price: '', is_active: true, market_cap_category: '' };
 const CAP_CATEGORIES = ['Large Cap', 'Mid Cap', 'Small Cap', 'Micro Cap'];
@@ -1266,15 +1267,18 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
       return (av < bv ? -1 : av > bv ? 1 : 0) * (sort.dir === 'asc' ? 1 : -1);
     });
 
-  const SortTh = ({ label, col }) => (
+  const SortTh = ({ label, col, tip }) => (
     <Th>
-      <button onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:text-brand-600 transition-colors">
-        {label}
-        <span className="flex flex-col -space-y-1">
-          <ChevronUp size={10} className={sort.key === col && sort.dir === 'asc' ? 'text-brand-600' : 'text-gray-300'} />
-          <ChevronDown size={10} className={sort.key === col && sort.dir === 'desc' ? 'text-brand-600' : 'text-gray-300'} />
-        </span>
-      </button>
+      <span className="flex items-center gap-1">
+        <button onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:text-brand-600 transition-colors">
+          {label}
+          <span className="flex flex-col -space-y-1">
+            <ChevronUp size={10} className={sort.key === col && sort.dir === 'asc' ? 'text-brand-600' : 'text-gray-300'} />
+            <ChevronDown size={10} className={sort.key === col && sort.dir === 'desc' ? 'text-brand-600' : 'text-gray-300'} />
+          </span>
+        </button>
+        {tip && <InfoTip text={tip} />}
+      </span>
     </Th>
   );
 
@@ -1282,6 +1286,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
     <div className="space-y-4">
             {/* Transaction group tabs */}
             <div className="flex items-center gap-1 flex-wrap border-b border-gray-200 dark:border-gray-700 pb-2">
+              <InfoTip text="Each transaction is a separate round of buying this stock, with its own investors, brokerage and profit calculation. Rounds are never averaged together — buying the same company again creates a new one." />
               <button
                 onClick={() => setActiveGroupId(null)}
                 className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
@@ -1322,7 +1327,10 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
             </div>
             {activeGroupId && <div className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex-wrap">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">Stockholder</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                  Stockholder
+                  <InfoTip text="Whose demat account physically holds these shares. This is an administrative detail — it does not mean they own the money. Only employees and shareholders can hold, never clients." />
+                </span>
                 <select
                   value={groups.find(g => g.id === activeGroupId)?.holder_id || ''}
                   disabled={!isAdmin}
@@ -1348,6 +1356,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
               <div className="flex items-center gap-3 ml-auto flex-wrap">
                 <p className="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">
                   Brokerage
+                  <InfoTip text="Enter the broker's total for this whole transaction, once — not per investor. It is shared out across investors in proportion to their profit when the transaction settles." />
                   {activeGroupId
                     ? <span className="ml-1 text-brand-600">({groups.find(g => g.id === activeGroupId)?.label})</span>
                     : <span className="ml-1 text-gray-400">(General)</span>
@@ -1508,7 +1517,8 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                   <tr>
                     <SortTh label="Investor" col="name" />
                     <SortTh label="Type" col="user_type" />
-                    <SortTh label="Status" col="status" />
+                    <SortTh label="Status" col="status"
+                      tip="A partial sale uses the oldest shares first. If someone bought into this transaction twice, one row can read exited while the other stays active — that is correct, not an error." />
                     <SortTh label="Shares" col="quantity" />
                     <Th>Buy Date</Th>
                     <SortTh label="Buy Price" col="avg_buy_price" />
@@ -1530,6 +1540,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                           title="Select all investment settled"
                         />
                         Inv. Settled
+                        <InfoTip align="right" text="Tick once the investor's original capital has actually been paid back to them. This is a record of money moving, not a calculation." />
                       </div>
                     </Th>
                     <Th>
@@ -1543,6 +1554,7 @@ export function HoldersModal({ stock, open, onClose, onEdit, onReload, showToast
                           title="Select all P&L settled"
                         />
                         P&amp;L Settled
+                        <InfoTip align="right" text="Separate from Inv. Settled: tick once the investor's share of the profit has been paid. Capital and profit are settled independently." />
                       </div>
                     </Th>
                     {!activeGroupId && <Th>Transaction</Th>}

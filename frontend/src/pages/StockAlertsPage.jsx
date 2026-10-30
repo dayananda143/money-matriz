@@ -1,5 +1,6 @@
 import { BellRing, TrendingDown, TrendingUp, Check, CheckCheck, Inbox } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
+import InfoTip from '../components/ui/InfoTip';
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -30,6 +31,7 @@ export default function StockAlertsPage() {
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">Stock Alerts</h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {pendingAlerts.length} pending · {acknowledgedAlerts.length} acknowledged
+              <InfoTip text="Acknowledging switches the alert off for that stock — it will not fire again until it is re-armed here. To clear the badge without disarming anything, mark the notification as read instead." />
             </p>
           </div>
         </div>
