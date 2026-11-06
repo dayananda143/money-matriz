@@ -138,14 +138,19 @@ function InfoTip({ text }) {
     }
     setOpen(true);
   };
+  // Break on the first sentence end, not on any full stop: these tips quote
+  // rupee figures, and splitting on '.' would cut a decimal in two.
+  const brk = text.search(/\.\s/);
+  const head = brk === -1 ? text : text.slice(0, brk + 1);
+  const rest = brk === -1 ? '' : text.slice(brk + 1).trim();
   return (
     <span className="inline-flex items-center ml-0.5" onClick={e => e.stopPropagation()} onMouseEnter={handleEnter} onMouseLeave={() => setOpen(false)} ref={ref}>
       <Info size={11} className="text-gray-400 hover:text-brand-400 cursor-pointer shrink-0 transition-colors" />
       {open && (
-        <span style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '220px' }}
+        <span style={{ position: 'fixed', top: pos.top, left: pos.left, transform: 'translateX(-50%)', zIndex: 9999, maxWidth: '240px' }}
           className="rounded-lg bg-gray-900 px-2.5 py-2 text-[11px] font-normal normal-case tracking-normal text-gray-100 shadow-2xl leading-[1.5] pointer-events-none border border-gray-700 whitespace-normal">
-          <span className="block font-semibold text-white mb-0.5">{text.split('.')[0]}.</span>
-          <span className="text-gray-400">{text.split('.').slice(1).join('.').trim()}</span>
+          <span className="block font-semibold text-white mb-0.5">{head}</span>
+          {rest && <span className="text-gray-400">{rest}</span>}
         </span>
       )}
     </span>
@@ -984,7 +989,12 @@ export default function SIPPage() {
           {!loading && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px bg-gray-100 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
               <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Total SIP Amount</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                  Total SIP Amount
+                  {/* Spells out this shareholder's own arithmetic, not a generic
+                      formula, so the figure can be checked against the rows. */}
+                  <InfoTip text={`${fmt.currency(sipTotal)} SIP + ${fmt.currency(additionalTotal)} additional − ${fmt.currency(withdrawTotal)} withdrawn = ${fmt.currency(total)}. What is still in after money taken back out.`} />
+                </p>
                 <p className="text-base font-bold text-gray-900 dark:text-white">{fmt.currency(total)}</p>
               </div>
               <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
@@ -1004,7 +1014,10 @@ export default function SIPPage() {
               </div>
               {cashOnHand !== null && (
                 <div className="bg-white dark:bg-gray-900 px-4 py-2.5">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Cash on Hand</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    Cash on Hand
+                    <InfoTip text={`${fmt.currency(total)} total SIP − ${fmt.currency(total - cashOnHand)} already put into stocks = ${fmt.currency(cashOnHand)}. A negative figure means more has been deployed than SIP accounts for, which is normal if purchases were funded from elsewhere.`} />
+                  </p>
                   <p className={`text-base font-bold ${cashOnHand >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>{fmt.currency(cashOnHand)}</p>
                   <p className="text-xs text-gray-400">SIP − deployed</p>
                 </div>
