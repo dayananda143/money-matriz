@@ -426,21 +426,26 @@ export function SIPTilesPage() {
             <thead>
               <tr>
                 {(() => {
+                  // The tip sits beside the sort button, not inside it: a button
+                  // nested in a button is invalid markup, swallows its own clicks
+                  // and is skipped by screen readers.
                   const SortBtn = ({ k, label, tip }) => (
-                    <button onClick={() => toggleTileSort(k)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">
-                      {label}
-                      <span className="flex flex-col leading-none">
-                        <ChevronUp size={10} className={tileSort.key === k && tileSort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
-                        <ChevronDown size={10} className={tileSort.key === k && tileSort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
-                      </span>
+                    <span className="inline-flex items-center gap-1">
+                      <button onClick={() => toggleTileSort(k)} className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        {label}
+                        <span className="flex flex-col leading-none">
+                          <ChevronUp size={10} className={tileSort.key === k && tileSort.dir === 'asc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                          <ChevronDown size={10} className={tileSort.key === k && tileSort.dir === 'desc' ? 'text-brand-500' : 'text-gray-300 dark:text-gray-600'} />
+                        </span>
+                      </button>
                       {tip && <InfoTip text={tip} />}
-                    </button>
+                    </span>
                   );
                   return (<>
                     <Th><SortBtn k="name" label="Shareholder" tip="The shareholder enrolled in the SIP plan. Click their name to view their full transaction ledger." /></Th>
                     {tileVisibleCols.has('entries') && <Th><SortBtn k="entries" label="Entries" tip="Total number of SIP entries recorded for this shareholder. Includes SIP, additional, and withdrawal entries." /></Th>}
-                    {tileVisibleCols.has('invested') && <Th><SortBtn k="invested" label="Invested" tip="Raw sum of all entry amounts. Includes SIP and additional contributions. Withdrawals are not subtracted here." /></Th>}
-                    {tileVisibleCols.has('net_total') && <Th><SortBtn k="net_total" label="Total SIP Amount" tip="Net SIP balance for this shareholder. Total deposits (SIP + additional) minus total withdrawals. This is the actual money committed." /></Th>}
+                    {tileVisibleCols.has('invested') && <Th><SortBtn k="invested" label="Invested" tip="SIP + Additional + Withdrawals — every entry added together regardless of direction, so a withdrawal counts the same as a contribution. Use Total SIP Amount for money actually in." /></Th>}
+                    {tileVisibleCols.has('net_total') && <Th><SortBtn k="net_total" label="Total SIP Amount" tip="SIP + Additional − Withdrawals. What the shareholder still has in after money taken back out, so it is lower than Invested for anyone who has withdrawn." /></Th>}
                     {tileVisibleCols.has('sip_amount') && <Th><SortBtn k="sip_amount" label="SIP Amount" tip="Sum of all entries tagged as regular SIP. These are the scheduled monthly contributions made under the SIP plan." /></Th>}
                     {tileVisibleCols.has('additional_amount') && <Th><SortBtn k="additional_amount" label="Additional" tip="Sum of entries tagged as additional investments. These are one-time or top-up contributions made outside the regular SIP schedule." /></Th>}
                     {tileVisibleCols.has('withdrawals') && <Th><SortBtn k="withdrawals" label="Withdrawals" tip="Total amount withdrawn by this shareholder. Withdrawals reduce the net SIP balance but are tracked separately here." /></Th>}
