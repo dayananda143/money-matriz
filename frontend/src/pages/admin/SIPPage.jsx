@@ -712,6 +712,7 @@ export default function SIPPage() {
   const [sort, setSort] = useState({ col: 'date', dir: 'desc' });
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+  const [typeFilter, setTypeFilter] = useState('all');
   const [inlineRow, setInlineRow] = useState(null); // { stock_id, amount, date, sip_type, notes, _stocks }
   const [inlineSaving, setInlineSaving] = useState(false);
   const SIP_COLS = ['type', 'stock', 'amount', 'notes'];
@@ -765,7 +766,14 @@ export default function SIPPage() {
   const sipTotal = entries.filter(e => e.sip_type === 'sip').reduce((s, e) => s + parseFloat(e.amount || 0), 0);
   const additionalTotal = entries.filter(e => e.sip_type === 'additional').reduce((s, e) => s + parseFloat(e.amount || 0), 0);
 
-  const sortedEntries = [...entries].sort((a, b) => {
+  // The totals above the table stay on the full ledger — they describe the
+  // shareholder's position, not the current view — while the table, its paging
+  // and the PDF all follow the filter.
+  const visibleEntries = typeFilter === 'all'
+    ? entries
+    : entries.filter(e => (e.sip_type || '') === typeFilter);
+
+  const sortedEntries = [...visibleEntries].sort((a, b) => {
     let av, bv;
     if (sort.col === 'date') { av = new Date(a.start_date || a.created_at); bv = new Date(b.start_date || b.created_at); }
     else if (sort.col === 'type') { av = a.sip_type || ''; bv = b.sip_type || ''; }
@@ -895,7 +903,30 @@ export default function SIPPage() {
             {shareholderInfo ? shareholderInfo.email : 'SIP Transactions'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {entries.length > 0 && (
+            <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'sip', label: 'SIP' },
+                { key: 'additional', label: 'Additional' },
+                { key: 'withdraw', label: 'Withdrawals' },
+              ].map(t => {
+                const count = t.key === 'all'
+                  ? entries.length
+                  : entries.filter(e => (e.sip_type || '') === t.key).length;
+                return (
+                  <button key={t.key}
+                    onClick={() => { setTypeFilter(t.key); setPage(1); }}
+                    className={`px-2.5 py-1.5 transition-colors ${typeFilter === t.key
+                      ? 'bg-brand-600 text-white'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    {t.label} <span className={typeFilter === t.key ? 'opacity-80' : 'opacity-60'}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <button onClick={load} className="btn-secondary p-2"><RefreshCw size={15} /></button>
           {entries.length > 0 && (
             <button onClick={() => exportSIPToPDF({ entries: sortedEntries, shareholderInfo, summary: { total, sipTotal, additionalTotal, withdrawTotal }, visibleCols: sipVisibleCols }).catch(console.error)}
@@ -1042,7 +1073,8 @@ export default function SIPPage() {
                 </tr>
               )}
               {sortedEntries.length === 0 && !inlineRow
-                ? <EmptyRow cols={sipVisibleCols.size + 1 + (isAdmin ? 1 : 0)} message="No SIP entries yet." />
+                ? <EmptyRow cols={sipVisibleCols.size + 1 + (isAdmin ? 1 : 0)}
+                    message={typeFilter === 'all' ? 'No SIP entries yet.' : `No ${typeFilter === 'withdraw' ? 'withdrawal' : typeFilter} entries.`} />
                 : pagedEntries.map(entry => (
                   <tr key={entry.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${entry.sip_type === 'withdraw' ? 'bg-red-50/40 dark:bg-red-900/10' : ''}`}>
                     <Td className="text-sm text-gray-600 dark:text-gray-300">{fmt.date(entry.start_date) || '—'}</Td>
