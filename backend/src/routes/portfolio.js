@@ -100,6 +100,7 @@ router.get('/:userId/summary', authenticate, async (req, res) => {
       invested,
       total_pnl: portfolioValue - invested,
       sip_net_invested: sipNetInvested,
+      given_funds: userType === 'shareholder' ? sipNetInvested : netDeposited,
     });
   } catch (err) {
     console.error(err);

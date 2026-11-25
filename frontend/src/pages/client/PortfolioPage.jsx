@@ -810,6 +810,9 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
   const exited = data?.holdings?.filter(h => h.status === 'exited') || [];
   const realizedPnl = exited.reduce((s, h) => s + parseFloat(h.realized_pnl), 0);
   const activeInvested = active.reduce((s, h) => s + parseFloat(h.current_value) - parseFloat(h.unrealized_pnl), 0);
+  // Same definitions as the client detail page and dashboard
+  const cashExclPnl = parseFloat(data?.given_funds || 0) - activeInvested;
+  const cashBalance = cashExclPnl + realizedPnl;
   const activeValue = active.reduce((s, h) => s + parseFloat(h.current_value), 0);
   const activeUnrealizedPnl = activeValue - activeInvested;
 
@@ -829,7 +832,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
           </button>
         </div>
       )}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
         <div className="card p-4">
           <p className="text-xs text-gray-500">SIP Amount</p>
           <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(data?.sip_net_invested)}</p>
@@ -847,7 +850,13 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
         </div>
         <div className="card p-4">
           <p className="text-xs text-gray-500">Cash Balance</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(data?.cash_balance)}</p>
+          <p className={`text-xl font-bold mt-1 ${pnlColor(cashBalance)}`}>{fmt.currency(cashBalance)}</p>
+          <p className="text-xs text-gray-400 mt-1">Incl. realized P&amp;L</p>
+        </div>
+        <div className="card p-4">
+          <p className="text-xs text-gray-500">Cash Balance (excl. P&amp;L)</p>
+          <p className={`text-xl font-bold mt-1 ${pnlColor(cashExclPnl)}`}>{fmt.currency(cashExclPnl)}</p>
+          <p className="text-xs text-gray-400 mt-1">Given − invested</p>
         </div>
         <div className="card p-4">
           <p className="text-xs text-gray-500">Unrealized P&L</p>
@@ -868,7 +877,7 @@ function HoldingsDetail({ userId, userName, hideExport = false }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <AllocationChart holdings={active} cash={data?.cash_balance} />
+        <AllocationChart holdings={active} cash={cashBalance} />
         <SectorChart holdings={active} />
         <MarketCapChart holdings={active} />
       </div>

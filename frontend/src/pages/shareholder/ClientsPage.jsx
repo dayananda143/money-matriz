@@ -6,8 +6,8 @@ import { fmt } from '../../utils/format';
 import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonSearchBar, SkeletonTable } from '../../components/ui/Skeleton';
 
-const CL_COLS = ['email', 'scheme', 'cash_balance', 'portfolio_value', 'total', 'status'];
-const CL_COL_LABEL = { email: 'Email', scheme: 'Scheme', cash_balance: 'Cash Balance', portfolio_value: 'Portfolio Value', total: 'Total', status: 'Status' };
+const CL_COLS = ['email', 'scheme', 'cash_balance', 'cash_excl_pnl', 'portfolio_value', 'total', 'status'];
+const CL_COL_LABEL = { email: 'Email', scheme: 'Scheme', cash_balance: 'Cash Balance', cash_excl_pnl: 'Cash (excl. P&L)', portfolio_value: 'Portfolio Value', total: 'Total', status: 'Status' };
 
 export default function ClientsPage() {
   const [clients, setClients] = useState([]);
@@ -143,6 +143,7 @@ export default function ClientsPage() {
               {visibleCols.has('email') && <Th>Email</Th>}
               {visibleCols.has('scheme') && <Th>Scheme</Th>}
               {visibleCols.has('cash_balance') && <Th>Cash Balance</Th>}
+              {visibleCols.has('cash_excl_pnl') && <Th>Cash (excl. P&amp;L)</Th>}
               {visibleCols.has('portfolio_value') && <Th>Portfolio Value</Th>}
               {visibleCols.has('total') && <Th>Total</Th>}
               {visibleCols.has('status') && <Th>Status</Th>}
@@ -165,6 +166,7 @@ export default function ClientsPage() {
                   )) : <span className="text-gray-400">—</span>}
                 </Td>}
                 {visibleCols.has('cash_balance') && <Td>{fmt.currency(c.cash_balance)}</Td>}
+                {visibleCols.has('cash_excl_pnl') && <Td>{fmt.currency(c.cash_excl_pnl)}</Td>}
                 {visibleCols.has('portfolio_value') && <Td>{fmt.currency(c.portfolio_value)}</Td>}
                 {visibleCols.has('total') && <Td className="font-medium">{fmt.currency(parseFloat(c.cash_balance) + parseFloat(c.portfolio_value))}</Td>}
                 {visibleCols.has('status') && <Td><span className={c.is_active ? 'badge-green' : 'badge-red'}>{c.is_active ? 'Active' : 'Inactive'}</span></Td>}

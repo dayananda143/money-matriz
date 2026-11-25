@@ -112,18 +112,33 @@ router.get('/shareholder/:id', authenticate, async (req, res) => {
                NULLIF(STRING_AGG(DISTINCT us.scheme, ',' ORDER BY us.scheme) FILTER (WHERE us.is_active = true), ''),
                NULL
              ) as scheme,
-             b.cash_balance,
-             COALESCE(SUM(CASE WHEN ROUND(h.quantity::numeric, 2) > 0 THEN h.quantity * s.current_price ELSE 0 END), 0) as portfolio_value
+             COALESCE(SUM(CASE WHEN ROUND(h.quantity::numeric, 2) > 0 THEN h.quantity * s.current_price ELSE 0 END), 0) as portfolio_value,
+             -- Cash excl. P&L = given funds − active holdings cost
+             COALESCE((
+               SELECT SUM(CASE WHEN fm.type = 'deposit' THEN fm.amount ELSE -fm.amount END)
+               FROM fund_movements fm WHERE fm.user_id = u.id
+             ), 0)
+             - COALESCE(SUM(CASE WHEN ROUND(h.quantity::numeric, 2) > 0 THEN h.quantity * h.avg_buy_price ELSE 0 END), 0) as cash_excl_pnl,
+             -- Realized P&L from fully exited positions (same as /all-clients)
+             COALESCE((
+               SELECT ROUND(SUM(CASE WHEN t.type = 'sell' THEN t.total ELSE -t.total END)::numeric, 2)
+               FROM transactions t
+               JOIN (
+                 SELECT h2.stock_id FROM holdings h2
+                 WHERE h2.user_id = u.id AND ROUND(h2.quantity::numeric, 2) <= 0
+               ) exited ON exited.stock_id = t.stock_id
+               WHERE t.user_id = u.id
+             ), 0) as realized_pnl
       FROM relationships r
       JOIN users u ON u.id = r.client_id
       LEFT JOIN user_schemes us ON us.user_id = u.id
-      LEFT JOIN balances b ON b.user_id = u.id
       LEFT JOIN holdings h ON h.user_id = u.id
       LEFT JOIN stocks s ON s.id = h.stock_id
       WHERE r.shareholder_id = $1
-      GROUP BY u.id, u.name, u.email, u.phone, u.is_active, u.created_at, b.cash_balance
+      GROUP BY u.id, u.name, u.email, u.phone, u.is_active, u.created_at
       ORDER BY u.name
     `, [shareholderId]);
+    rows.forEach(r => { r.cash_balance = parseFloat(r.cash_excl_pnl) + parseFloat(r.realized_pnl); });
     res.json(rows);
   } catch (err) {
     console.error(err);

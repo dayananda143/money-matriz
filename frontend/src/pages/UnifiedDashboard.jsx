@@ -68,7 +68,7 @@ function ProfileWidget({ user }) {
 
 // ── Widget: My Portfolio Stats ─────────────────────────────────────────────
 function MyPortfolioWidget({ portfolioData }) {
-  if (!portfolioData) return <SkeletonStatCards count={4} />;
+  if (!portfolioData) return <SkeletonStatCards count={6} />;
   // Match Portfolio page: use active holdings cost basis, not summary `invested` field
   const activeHoldings = (portfolioData.holdings || []).filter(h => h.status === 'active');
   const exitedHoldings = (portfolioData.holdings || []).filter(h => h.status === 'exited');
@@ -76,15 +76,20 @@ function MyPortfolioWidget({ portfolioData }) {
   const realizedPnl = exitedHoldings.reduce((s, h) => s + parseFloat(h.realized_pnl || 0), 0);
   const pnl = (portfolioData.portfolio_value || 0) - activeInvested;
   const pnlPct = activeInvested > 0 ? pnl / activeInvested * 100 : 0;
+  // Same definitions as the client detail page
+  const givenFunds = parseFloat(portfolioData.given_funds || 0);
+  const cashExclPnl = givenFunds - activeInvested;
+  const cashBalance = cashExclPnl + realizedPnl;
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">My Portfolio</p>
         <Link to="/portfolio" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Portfolio →</Link>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard title="Portfolio Value" value={fmt.currency(portfolioData.portfolio_value)} icon={TrendingUp} color="brand" />
-        <StatCard title="Cash Balance" value={fmt.currency(portfolioData.cash_balance)} icon={Wallet} color="blue" />
+        <StatCard title="Cash Balance" value={fmt.currency(cashBalance)} icon={Wallet} color="blue" />
+        <StatCard title="Cash Balance (excl. P&L)" value={fmt.currency(cashExclPnl)} icon={Wallet} color="blue" />
         <StatCard title="Amount Invested" value={fmt.currency(activeInvested)} icon={BarChart2} color="purple" />
         <StatCard title="Unrealized P&L" value={`${pnlSign(pnl)}${fmt.currency(pnl)}`} trend={pnlPct} icon={ArrowUpDown} color="orange" />
         <StatCard title="Realized P&L" value={`${pnlSign(realizedPnl)}${fmt.currency(realizedPnl)}`} icon={ArrowUpDown} color={realizedPnl >= 0 ? 'brand' : 'orange'} />

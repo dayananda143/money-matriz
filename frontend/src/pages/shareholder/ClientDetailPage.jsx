@@ -487,7 +487,7 @@ export default function ClientDetailPage() {
   if (loading) return (
     <div className="space-y-6">
       <SkeletonPageHeader />
-      <SkeletonStatCards count={6} cols="grid-cols-2 sm:grid-cols-3 lg:grid-cols-6" />
+      <SkeletonStatCards count={7} cols="grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7" />
       <SkeletonFilterPills count={3} />
       <SkeletonTable rows={6} cols={7} />
     </div>
@@ -539,7 +539,7 @@ export default function ClientDetailPage() {
         const realizedPnl = exitedHoldings.reduce((s, h) => s + parseFloat(h.realized_pnl), 0);
         const givenFunds = funds.reduce((s, f) => s + (f.type === 'deposit' ? parseFloat(f.amount) : -parseFloat(f.amount)), 0);
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
             <div className="card p-5">
               <p className="text-sm text-gray-500">Given Funds</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(givenFunds)}</p>
@@ -557,6 +557,12 @@ export default function ClientDetailPage() {
             <div className="card p-5">
               <p className="text-sm text-gray-500">Cash Balance</p>
               <p className={`text-xl font-bold mt-1 ${pnlColor(givenFunds - activeInvested + realizedPnl)}`}>{fmt.currency(givenFunds - activeInvested + realizedPnl)}</p>
+              <p className="text-xs text-gray-400 mt-1">Incl. realized P&amp;L</p>
+            </div>
+            <div className="card p-5">
+              <p className="text-sm text-gray-500">Cash Balance (excl. P&amp;L)</p>
+              <p className={`text-xl font-bold mt-1 ${pnlColor(givenFunds - activeInvested)}`}>{fmt.currency(givenFunds - activeInvested)}</p>
+              <p className="text-xs text-gray-400 mt-1">Given − invested</p>
             </div>
             <div className="card p-5">
               <p className="text-sm text-gray-500">Unrealized P&L</p>
