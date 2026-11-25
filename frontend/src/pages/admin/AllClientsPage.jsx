@@ -16,8 +16,11 @@ const SCHEME_COLORS = [
   { bg: 'bg-violet-50 dark:bg-violet-900/20', border: 'border-violet-200 dark:border-violet-800', active: 'bg-violet-600 border-violet-600', text: 'text-violet-700 dark:text-violet-400', num: 'text-violet-600 dark:text-violet-400' },
 ];
 
-const AC_COLS = ['manager', 'scheme', 'deposited', 'cash', 'portfolio', 'unrealized_pnl', 'realized_pnl', 'total_pnl', 'aum', 'status', 'joined'];
-const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', deposited: 'Amount Given', cash: 'Cash Balance', portfolio: 'Portfolio Value', unrealized_pnl: 'Unrealized P/L', realized_pnl: 'Realized P/L', total_pnl: 'Total P/L', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
+// Cash excl. P&L = amount given − active holdings cost
+const cashExclPnl = c => parseFloat(c.total_deposited || 0) - parseFloat(c.active_invested || 0);
+
+const AC_COLS = ['manager', 'scheme', 'deposited', 'cash', 'cash_excl', 'portfolio', 'unrealized_pnl', 'realized_pnl', 'total_pnl', 'aum', 'status', 'joined'];
+const AC_COL_LABEL = { manager: 'Manager', scheme: 'Scheme', deposited: 'Amount Given', cash: 'Cash Balance', cash_excl: 'Cash (excl. P&L)', portfolio: 'Portfolio Value', unrealized_pnl: 'Unrealized P/L', realized_pnl: 'Realized P/L', total_pnl: 'Total P/L', aum: 'Total AUM', status: 'Status', joined: 'Joined' };
 
 const toSlug = s => s.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 const fromSlug = (slug, schemes) => schemes.find(s => toSlug(s) === slug) || 'All';
@@ -37,8 +40,15 @@ export default function AllClientsPage() {
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [visibleCols, setVisibleCols] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem('all_clients_cols') || 'null'); return s ? new Set(s) : new Set(AC_COLS); } catch { return new Set(AC_COLS); }
+    try {
+      const s = JSON.parse(localStorage.getItem('all_clients_cols') || 'null');
+      if (!s) return new Set(AC_COLS);
+      // Columns added after the choice was saved start out visible
+      const known = JSON.parse(localStorage.getItem('all_clients_cols_known') || 'null') || AC_COLS.filter(c => c !== 'cash_excl');
+      return new Set([...s, ...AC_COLS.filter(c => !known.includes(c))]);
+    } catch { return new Set(AC_COLS); }
   });
+  useEffect(() => { localStorage.setItem('all_clients_cols_known', JSON.stringify(AC_COLS)); }, []);
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const toggleCol = col => setVisibleCols(prev => {
     const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col);
@@ -59,6 +69,7 @@ export default function AllClientsPage() {
         Scheme: c.scheme || '',
         'Amount Given': parseFloat(c.total_deposited || 0),
         'Cash Balance': cash,
+        'Cash (excl. P&L)': cashExclPnl(c),
         'Portfolio Value': portfolio,
         'Unrealized P/L': unrealized,
         'Realized P/L': realized,
@@ -213,6 +224,7 @@ export default function AllClientsPage() {
       else if (sortKey === 'manager') { av = (a.shareholder_name || '').toLowerCase(); bv = (b.shareholder_name || '').toLowerCase(); }
       else if (sortKey === 'deposited') { av = parseFloat(a.total_deposited || 0); bv = parseFloat(b.total_deposited || 0); }
       else if (sortKey === 'cash') { av = parseFloat(a.cash_balance || 0); bv = parseFloat(b.cash_balance || 0); }
+      else if (sortKey === 'cash_excl') { av = cashExclPnl(a); bv = cashExclPnl(b); }
       else if (sortKey === 'portfolio') { av = parseFloat(a.portfolio_value || 0); bv = parseFloat(b.portfolio_value || 0); }
       else if (sortKey === 'unrealized_pnl') { av = parseFloat(a.unrealized_pnl || 0); bv = parseFloat(b.unrealized_pnl || 0); }
       else if (sortKey === 'realized_pnl') { av = parseFloat(a.realized_pnl || 0); bv = parseFloat(b.realized_pnl || 0); }
@@ -390,6 +402,7 @@ export default function AllClientsPage() {
               {visibleCols.has('scheme') && <Th>Scheme</Th>}
               {visibleCols.has('deposited') && <SortTh col="deposited">Amount Given</SortTh>}
               {visibleCols.has('cash') && <SortTh col="cash">Cash Balance</SortTh>}
+              {visibleCols.has('cash_excl') && <SortTh col="cash_excl">Cash (excl. P&amp;L)<InfoTip text="Amount given minus the cost of holdings still held. Unlike Cash Balance, it leaves out profit or loss from sold positions." /></SortTh>}
               {visibleCols.has('portfolio') && <SortTh col="portfolio">Portfolio Value</SortTh>}
               {visibleCols.has('unrealized_pnl') && <SortTh col="unrealized_pnl">Unrealized P/L<InfoTip text="Gain or loss on holdings still in the portfolio. Calculated as current market value minus the average buy price of open positions." /></SortTh>}
               {visibleCols.has('realized_pnl') && <SortTh col="realized_pnl">Realized P/L<InfoTip text="Profit or loss locked in from sold positions. Calculated as sell proceeds minus the cost of shares that have been fully or partially exited." /></SortTh>}
@@ -416,6 +429,7 @@ export default function AllClientsPage() {
                 </Td>}
                 {visibleCols.has('deposited') && <Td>{fmt.currency(c.total_deposited)}</Td>}
                 {visibleCols.has('cash') && <Td>{fmt.currency(c.cash_balance)}</Td>}
+                {visibleCols.has('cash_excl') && <Td>{fmt.currency(cashExclPnl(c))}</Td>}
                 {visibleCols.has('portfolio') && <Td>{fmt.currency(c.portfolio_value)}</Td>}
                 {visibleCols.has('unrealized_pnl') && (() => { const v = parseFloat(c.unrealized_pnl || 0); const base = parseFloat(c.portfolio_value || 0) - v; const pct = base !== 0 ? (v / Math.abs(base)) * 100 : null; const cls = v >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; return <Td><span className={`font-medium ${cls}`}>{v >= 0 ? '+' : ''}{fmt.currency(v)}</span>{pct !== null && <span className={`ml-1 text-xs ${cls}`}>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}</Td>; })()}
                 {visibleCols.has('realized_pnl') && (() => { const v = parseFloat(c.realized_pnl || 0); const base = parseFloat(c.total_deposited || 0); const pct = base !== 0 ? (v / base) * 100 : null; const cls = v >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; return <Td><span className={`font-medium ${cls}`}>{v >= 0 ? '+' : ''}{fmt.currency(v)}</span>{pct !== null && <span className={`ml-1 text-xs ${cls}`}>({pct >= 0 ? '+' : ''}{pct.toFixed(2)}%)</span>}</Td>; })()}
@@ -432,6 +446,7 @@ export default function AllClientsPage() {
                 {visibleCols.has('scheme') && <Td />}
                 {visibleCols.has('deposited') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(sorted.reduce((s, c) => s + parseFloat(c.total_deposited || 0), 0))}</Td>}
                 {visibleCols.has('cash') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalCash)}</Td>}
+                {visibleCols.has('cash_excl') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(sorted.reduce((s, c) => s + cashExclPnl(c), 0))}</Td>}
                 {visibleCols.has('portfolio') && <Td className="font-bold text-gray-900 dark:text-white">{fmt.currency(totalPortfolio)}</Td>}
                 {visibleCols.has('unrealized_pnl') && (() => { const t = sorted.reduce((s, c) => s + parseFloat(c.unrealized_pnl || 0), 0); return <Td className={`font-bold ${t >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{t >= 0 ? '+' : ''}{fmt.currency(t)}</Td>; })()}
                 {visibleCols.has('realized_pnl') && (() => { const t = sorted.reduce((s, c) => s + parseFloat(c.realized_pnl || 0), 0); return <Td className={`font-bold ${t >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{t >= 0 ? '+' : ''}{fmt.currency(t)}</Td>; })()}
