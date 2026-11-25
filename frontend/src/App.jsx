@@ -47,6 +47,7 @@ import StockDetailPage from './pages/admin/StockDetailPage';
 import StockAnalysisPage from './pages/admin/StockAnalysisPage';
 import RelationshipsPage from './pages/admin/RelationshipsPage';
 import ClientDashboardPage from './pages/admin/ClientDashboardPage';
+import ShareholderDashboardPage from './pages/admin/ShareholderDashboardPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import BrokerageAccountsPage from './pages/admin/BrokerageAccountsPage';
 import SIPPage, { SIPTilesPage } from './pages/admin/SIPPage';
@@ -93,6 +94,7 @@ function ProtectedRoutes() {
 
         {/* Shareholder: my clients */}
         {(isShareholder || isAdmin) && <Route path="/clients/dashboard" element={<ClientDashboardPage />} />}
+        {(isShareholder || isAdmin) && <Route path="/shareholders/dashboard" element={<ShareholderDashboardPage />} />}
         {(isShareholder || isAdmin) && <Route path="/clients" element={<ClientsPage />} />}
         {(isShareholder || isAdmin) && <Route path="/clients/:id" element={<ClientDetailPage />} />}
 

@@ -209,16 +209,17 @@ function DematWidget() {
   );
 }
 
-// ── Widget: Clients Summary ────────────────────────────────────────────────
-function ClientsSummaryWidget() {
+// ── Widget: Clients / Shareholders Summary ─────────────────────────────────
+function UsersSummaryWidget({ type = 'client', title, link }) {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    api.get('/relationships/all-clients?scope=all').then(r => setClients(r.data)).catch(console.error).finally(() => setLoading(false));
-  }, []);
+    api.get(`/relationships/all-clients?scope=all&type=${type}`).then(r => setClients(r.data)).catch(console.error).finally(() => setLoading(false));
+  }, [type]);
   if (loading) return <SkeletonStatCards count={4} />;
   const active = clients.filter(c => c.is_active);
-  const given      = active.reduce((s, c) => s + parseFloat(c.total_deposited || 0), 0);
+  const isShareholders = type === 'shareholder';
+  const given      = active.reduce((s, c) => s + parseFloat((isShareholders ? c.shares_contributed : c.total_deposited) || 0), 0);
   const invested   = active.reduce((s, c) => s + parseFloat(c.active_invested || 0), 0);
   const realized   = active.reduce((s, c) => s + parseFloat(c.realized_pnl || 0), 0);
   const unrealized = active.reduce((s, c) => s + parseFloat(c.unrealized_pnl || 0), 0);
@@ -226,15 +227,15 @@ function ClientsSummaryWidget() {
     <div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-          Clients Summary <span className="normal-case font-normal text-gray-400">({active.length} active)</span>
+          {title} <span className="normal-case font-normal text-gray-400">({active.length} active)</span>
         </p>
-        <Link to="/clients/dashboard" className="text-xs text-brand-600 hover:text-brand-700 font-medium">View Clients →</Link>
+        {link && <Link to={link.to} className="text-xs text-brand-600 hover:text-brand-700 font-medium">{link.label}</Link>}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total Given</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{isShareholders ? 'Company Share Capital' : 'Total Given'}</p>
           <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{fmt.currency(given)}</p>
-          <p className="text-xs text-gray-400 mt-1">Deposits − withdrawals</p>
+          <p className="text-xs text-gray-400 mt-1">{isShareholders ? 'Share contributions' : 'Deposits − withdrawals'}</p>
         </div>
         <div className="card p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Total Invested</p>
@@ -244,7 +245,7 @@ function ClientsSummaryWidget() {
         <div className="card p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Realized P&amp;L</p>
           <p className={`text-xl font-bold mt-1 ${pnlColor(realized)}`}>{pnlSign(realized)}{fmt.currency(realized)}</p>
-          {given > 0 && <p className={`text-xs font-medium mt-1 ${pnlColor(realized)}`}>{pnlSign(realized)}{fmt.percent(Math.abs(realized / given * 100))} of given</p>}
+          {given > 0 && <p className={`text-xs font-medium mt-1 ${pnlColor(realized)}`}>{pnlSign(realized)}{fmt.percent(Math.abs(realized / given * 100))} of {isShareholders ? 'share capital' : 'given'}</p>}
         </div>
         <div className="card p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Unrealized P&amp;L</p>
@@ -322,7 +323,12 @@ const WIDGETS = [
   {
     id: 'clients',
     roles: ['shareholder', 'admin'],
-    render: () => <ClientsSummaryWidget />,
+    render: () => <UsersSummaryWidget type="client" title="Clients Summary" link={{ to: '/clients/dashboard', label: 'View Clients →' }} />,
+  },
+  {
+    id: 'shareholders',
+    roles: ['shareholder', 'admin'],
+    render: () => <UsersSummaryWidget type="shareholder" title="Shareholders Summary" link={{ to: '/shareholders/dashboard', label: 'View Shareholders →' }} />,
   },
   {
     id: 'demat',

@@ -26,14 +26,16 @@ router.get('/all-clients', authenticate, async (req, res) => {
   const isShareholder = req.user.user_type === 'shareholder';
   if (!isAdmin && !isShareholder) return res.status(403).json({ error: 'Forbidden' });
 
-  const scopeAll = isAdmin || req.query.scope === 'all';
+  // ?type=shareholder lists shareholders (always across the whole platform); default is clients
+  const userType = req.query.type === 'shareholder' ? 'shareholder' : 'client';
+  const scopeAll = isAdmin || req.query.scope === 'all' || userType === 'shareholder';
 
   try {
-    const params = scopeAll ? [] : [req.user.id];
+    const params = scopeAll ? [userType] : [userType, req.user.id];
     const extraJoin = scopeAll ? '' : 'LEFT JOIN relationships r2 ON r2.client_id = u.id';
     const whereClause = scopeAll
-      ? `WHERE u.user_type = 'client'`
-      : `WHERE u.user_type = 'client' AND r2.shareholder_id = $1`;
+      ? `WHERE u.user_type = $1`
+      : `WHERE u.user_type = $1 AND r2.shareholder_id = $2`;
 
     const { rows } = await query(`
       SELECT u.id, u.name, u.email, u.phone, u.user_type, u.is_active, u.created_at,
@@ -48,6 +50,12 @@ router.get('/all-clients', authenticate, async (req, res) => {
                SELECT SUM(CASE WHEN fm.type = 'deposit' THEN fm.amount ELSE -fm.amount END)
                FROM fund_movements fm WHERE fm.user_id = u.id
              ), 0) as total_deposited,
+             COALESCE((
+               SELECT SUM(sc.amount)
+               FROM shares_contributors sc
+               JOIN company_records cr ON cr.id = sc.shares_id
+               WHERE sc.user_id = u.id AND cr.category = 'shares' AND sc.excluded = FALSE
+             ), 0) as shares_contributed,
              COALESCE((
                SELECT ROUND(SUM(CASE WHEN t.type = 'sell' THEN t.total ELSE -t.total END)::numeric, 2)
                FROM transactions t
