@@ -869,10 +869,11 @@ function EditBuyAllModal({ stock, buyTxns, open, onClose, onDone }) {
 const holdingPeriod = (startStr, endStr) => {
   if (!startStr) return '—';
   const end = endStr ? new Date(endStr) : new Date();
-  const days = Math.floor((end - new Date(startStr)) / 86400000);
+  const days = Math.max(0, Math.floor((end - new Date(startStr)) / 86400000));
   if (days < 30) return `${days}d`;
   const months = Math.floor(days / 30.44);
-  if (months < 12) return `${months}m ${days % 30}d`;
+  const remDays = Math.floor(days - months * 30.44);
+  if (months < 12) return `${months}m ${remDays}d`;
   const years = Math.floor(months / 12);
   const remMonths = months % 12;
   return remMonths > 0 ? `${years}y ${remMonths}m` : `${years}y`;
@@ -2661,7 +2662,7 @@ export default function StocksPage() {
     const { key, dir } = tableSort;
     let av = a[key], bv = b[key];
     if (key === 'change') { av = parseFloat(a.current_price) - parseFloat(a.previous_close); bv = parseFloat(b.current_price) - parseFloat(b.previous_close); }
-    if (key === 'period') { av = a.first_investment_date ? new Date(a.first_investment_date).getTime() : 0; bv = b.first_investment_date ? new Date(b.first_investment_date).getTime() : 0; }
+    if (key === 'period') { av = a.holding_start_date ? new Date(a.holding_start_date).getTime() : 0; bv = b.holding_start_date ? new Date(b.holding_start_date).getTime() : 0; }
     if (key === 'txn_date') {
       const pick = (x) => (isEffectivelyActive(x) ? x.last_buy_date : x.last_sell_date);
       av = pick(a) ? new Date(pick(a)).getTime() : 0;
@@ -2850,7 +2851,7 @@ export default function StocksPage() {
                           : <span className="text-xs text-gray-300 dark:text-gray-600">—</span>}
                       </Td>
                     )}
-                    {stockVisibleCols.has('period') && <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>}
+                    {stockVisibleCols.has('period') && <Td className="text-xs text-gray-500 whitespace-nowrap">{holdingPeriod(s.holding_start_date || s.first_investment_date, s.has_active_investors ? null : s.last_sell_date)}</Td>}
                     {/* Still held: when it was last bought into. Exited: when it was finally sold. */}
                     {stockVisibleCols.has('txn_date') && <Td className="text-xs text-gray-500 whitespace-nowrap">
                       {(() => {

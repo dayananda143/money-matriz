@@ -3,6 +3,23 @@ const { query, pool } = require('../db');
 const { authenticate, requireRole, requireRoleOrShareholder } = require('../middleware/auth');
 
 const YahooFinance = require('yahoo-finance2').default;
+
+// Start of the stock's current (or, once fully exited, its latest) holding:
+// the first buy after the last sell that took the platform-wide position to zero
+// before the most recent buy. Falls back to the very first buy.
+const HOLDING_START_SQL = `(SELECT MIN(b.executed_at) FROM transactions b
+     WHERE b.stock_id = s.id AND b.type = 'buy'
+       AND b.executed_at >= COALESCE((
+         SELECT MAX(f.executed_at) FROM (
+           SELECT t.executed_at, t.type,
+                  SUM(CASE WHEN t.type = 'buy' THEN t.quantity ELSE -t.quantity END)
+                    OVER (ORDER BY t.executed_at, t.id) AS net
+           FROM transactions t WHERE t.stock_id = s.id
+         ) f
+         WHERE f.type = 'sell' AND ROUND(f.net::numeric, 2) <= 0
+           AND f.executed_at < (SELECT MAX(executed_at) FROM transactions WHERE stock_id = s.id AND type = 'buy')
+       ), '-infinity'::timestamp))`;
+
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 async function fetchYahooPrice(symbol) {
@@ -97,6 +114,7 @@ router.get('/all', authenticate, requireRoleOrShareholder('admin', 'super_admin'
     const { rows } = await query(`
       SELECT s.*,
         (SELECT MIN(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS first_investment_date,
+        ${HOLDING_START_SQL} AS holding_start_date,
         (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS last_buy_date,
         (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'sell') AS last_sell_date,
         u.id AS holder_id, u.name AS holder_name, u.email AS holder_email, u.user_type AS holder_user_type,
@@ -424,6 +442,7 @@ router.get('/:id', authenticate, requireRoleOrShareholder('admin', 'super_admin'
     const { rows } = await query(`
       SELECT s.*,
         (SELECT MIN(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'buy') AS first_investment_date,
+        ${HOLDING_START_SQL} AS holding_start_date,
         (SELECT MAX(t.executed_at) FROM transactions t WHERE t.stock_id = s.id AND t.type = 'sell') AS last_sell_date,
         (SELECT CASE WHEN COUNT(DISTINCT h.avg_buy_price) = 1 THEN MIN(h.avg_buy_price) ELSE NULL END
          FROM holdings h WHERE h.stock_id = s.id) AS common_buy_price
