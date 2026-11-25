@@ -57,6 +57,10 @@ router.get('/all-clients', authenticate, async (req, res) => {
                WHERE sc.user_id = u.id AND cr.category = 'shares' AND sc.excluded = FALSE
              ), 0) as shares_contributed,
              COALESCE((
+               SELECT SUM(CASE WHEN sp.sip_type = 'withdraw' THEN -sp.amount ELSE sp.amount END)
+               FROM sip_plans sp WHERE sp.shareholder_id = u.id
+             ), 0) as sip_net_invested,
+             COALESCE((
                SELECT ROUND(SUM(CASE WHEN t.type = 'sell' THEN t.total ELSE -t.total END)::numeric, 2)
                FROM transactions t
                JOIN (

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, Search, FileSpreadsheet, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -9,6 +9,12 @@ import { Table, Th, Td, EmptyRow } from '../../components/ui/Table';
 import { SkeletonPageHeader, SkeletonTable } from '../../components/ui/Skeleton';
 
 const num = v => parseFloat(v || 0);
+
+const HeadTip = ({ text }) => (
+  <span title={text} className="inline-flex align-middle ml-1 cursor-help">
+    <Info size={11} className="text-gray-400" />
+  </span>
+);
 
 function StatTile({ label, value, sub, className = 'text-gray-900 dark:text-white' }) {
   return (
@@ -54,6 +60,8 @@ export default function ShareholderDashboardPage() {
       portfolio: num(s.portfolio_value),
       unrealized: num(s.unrealized_pnl),
       realized: num(s.realized_pnl),
+      // Same as the SIP page's Cash on Hand: SIP money not yet in stocks
+      cashExcl: num(s.sip_net_invested) - num(s.active_invested),
       clientCount: clientCounts[s.id] || 0,
     }))
     .sort((a, b) => b.portfolio - a.portfolio), [shareholders, clientCounts]);
@@ -81,6 +89,7 @@ export default function ShareholderDashboardPage() {
       'Portfolio Value': r.portfolio,
       'Unrealized P/L': r.unrealized,
       'Realized P/L': r.realized,
+      'Cash on Hand (excl. profits)': r.cashExcl,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -144,10 +153,11 @@ export default function ShareholderDashboardPage() {
               <Th>Portfolio</Th>
               <Th>Unrealized P&amp;L</Th>
               <Th>Realized P&amp;L</Th>
+              <Th>Cash on Hand (excl. profits)<HeadTip text="Total SIP amount minus the cost of holdings still held. Same figure as Cash on Hand on the SIP page." /></Th>
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && <EmptyRow cols={7} message="No shareholders" />}
+            {!filtered.length && <EmptyRow cols={8} message="No shareholders" />}
             {filtered.map(r => {
               const pct = r.invested > 0 ? r.unrealized / r.invested * 100 : 0;
               return (
@@ -167,6 +177,7 @@ export default function ShareholderDashboardPage() {
                     {r.invested > 0 && <span className="text-xs ml-1">({pnlSign(pct)}{fmt.percent(Math.abs(pct))})</span>}
                   </Td>
                   <Td className={`text-sm ${pnlColor(r.realized)}`}>{pnlSign(r.realized)}{fmt.currency(r.realized)}</Td>
+                  <Td className={`text-sm ${pnlColor(r.cashExcl)}`}>{fmt.currency(r.cashExcl)}</Td>
                 </tr>
               );
             })}
