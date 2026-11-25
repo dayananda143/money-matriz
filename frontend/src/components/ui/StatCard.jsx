@@ -22,18 +22,17 @@ export default function StatCard({ title, value, sub, trend, icon: Icon, color =
 
   return (
     <div className="card p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
-          <p className={`mt-1 text-xl md:text-2xl font-bold ${valueColors[color] ?? 'text-gray-900 dark:text-white'}`}>{value}</p>
-          {sub && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</p>}
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400 min-w-0">{title}</p>
         {Icon && (
-          <div className={`p-2.5 rounded-lg ${iconColors[color]}`}>
-            <Icon size={20} />
+          <div className={`p-2 rounded-lg shrink-0 ${iconColors[color]}`}>
+            <Icon size={18} />
           </div>
         )}
       </div>
+      {/* Full card width for the value, never broken across lines */}
+      <p className={`mt-2 text-xl md:text-2xl xl:text-xl 2xl:text-2xl font-bold whitespace-nowrap tabular-nums ${valueColors[color] ?? 'text-gray-900 dark:text-white'}`}>{value}</p>
+      {sub && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{sub}</p>}
       {trend !== undefined && (
         <div className={`flex items-center gap-1 mt-3 text-sm font-medium ${parseFloat(trend) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
           {parseFloat(trend) >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
